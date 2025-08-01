@@ -1,0 +1,52 @@
+{
+  "name": "demo", // 包名
+  "productName": "demo", // 应用产品名（用于构建时显示）
+  "description": "My Electron application demo", // 应用描述
+  "keywords": [], // 关键字
+  "main": "./main.js", // 应用主进程入口文件
+  "version": "1.0.1", // 版本号
+  "author": "lsx", // 作者
+  "license": "MIT", // 许可证类型
+  "build": { // electron-builder 的构建配置
+    "productName": "demo", // 构建后产品名
+    "appId": "com.demo", // 应用唯一标识
+    "directories": {
+      "output": "app_file" // 构建输出目录
+    },
+    "nsis": { // NSIS 安装包相关配置
+      "oneClick": false, // 是否一键安装
+      "allowElevation": true, // 允许权限提升
+      "allowToChangeInstallationDirectory": true, // 允许用户更改安装目录
+      "installerIcon": "./main.ico", // 安装包图标
+      "uninstallerIcon": "./main.ico", // 卸载程序图标
+      "installerHeaderIcon": "./main.ico", // 安装包头部图标
+      "createDesktopShortcut": true, // 创建桌面快捷方式
+      "createStartMenuShortcut": true, // 创建开始菜单快捷方式
+      "shortcutName": "demo" // 快捷方式名称
+    },
+    "win": { // Windows 平台相关配置
+      "icon": "./main.ico", // 应用图标
+      "target": [
+        {
+          "target": "nsis", // 构建目标为 NSIS 安装包
+          "arch": [
+            "ia32" // 构建 32 位架构
+          ]
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "start": "electron .", // 启动 Electron 应用
+    "build": "electron-builder" // 打包构建应用
+  },
+  "dependencies": {
+    "yarn": "^1.22.22" // 生产依赖
+  },
+  "devDependencies": {
+    "electron": "^31.3.1", // Electron 主程序
+    "electron-builder": "^24.13.3", // 打包工具
+    "node-gyp": "^10.2.0", // 原生模块编译工具
+    "node-gyp-build": "^4.8.1" // 辅助 node-gyp 的构建工具
+  }
+}

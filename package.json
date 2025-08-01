@@ -1,0 +1,52 @@
+{
+  "name": "net-cmd-register",
+  "description": "网络命令注册器，用于测试网口下发不同命令的测试工具。",
+  "main": "./main.js",
+  "version": "1.0.1",
+  "author": "liansixin",
+  "license": "MIT",
+  "build": {
+    "productName": "NetCmdRegister",
+    "appId": "com.NetCmdRegister",
+    "directories": {
+      "output": "app_file"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "./main.ico",
+      "uninstallerIcon": "./main.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NetCmdRegister"
+    },
+    "win": {
+      "icon": "./main.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "ia32",
+            "x64"
+          ]
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "app-builder-lib": "^26.0.12",
+    "electron": "^37.2.4",
+    "electron-builder": "^26.0.12",
+    "electron-builder-squirrel-windows": "^26.0.12",
+    "electron-winstaller": "^5.4.0",
+    "rimraf": "^2.6.3",
+    "temp": "^0.9.4",
+    "node-gyp": "^10.2.0",
+    "node-gyp-build": "^4.8.1"
+  }
+}

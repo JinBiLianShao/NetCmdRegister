@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetCmdRegister - 网络命令注册器</title>
+    <!-- 引入 Tailwind CSS CDN，用于快速美化界面 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入自定义样式 -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-slate-100 font-sans p-6 text-slate-800">
+
+    <div class="max-w-7xl mx-auto bg-white p-8 rounded-2xl shadow-xl space-y-6">
+        <!-- 应用标题 -->
+        <h1 class="text-4xl font-bold text-center text-slate-900 mb-6">网络命令注册器</h1>
+        <p class="text-center text-slate-500">一个用于测试网口下发不同命令的工具原型</p>
+
+        <!-- 主界面容器，分为三列 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+
+            <!-- 1. 命令注册界面 -->
+            <div class="bg-slate-50 p-6 rounded-xl shadow-inner space-y-4">
+                <h2 class="text-2xl font-semibold text-slate-700">注册命令</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label for="command-name" class="block text-sm font-medium text-slate-600">命令名称</label>
+                        <input type="text" id="command-name" placeholder="例如: 设备重启"
+                               class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
+                    </div>
+                    <div>
+                        <label for="command-payload" class="block text-sm font-medium text-slate-600">命令内容 (十六进制或文本)</label>
+                        <textarea id="command-payload" rows="4" placeholder="例如: 01 02 03 FF 0A"
+                                  class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500"></textarea>
+                    </div>
+                    <button id="add-command-btn"
+                            class="w-full bg-slate-600 text-white py-2 px-4 rounded-md font-bold hover:bg-slate-700 transition-colors shadow-md">
+                        添加命令
+                    </button>
+                </div>
+                <hr class="border-slate-200">
+                <h3 class="text-xl font-semibold text-slate-700">已注册命令</h3>
+                <ul id="registered-commands-list" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                    <!-- 命令列表将在这里动态生成 -->
+                </ul>
+            </div>
+
+            <!-- 2. 用户操作界面 -->
+            <div class="bg-slate-50 p-6 rounded-xl shadow-inner space-y-4">
+                <h2 class="text-2xl font-semibold text-slate-700">发送命令</h2>
+                <div class="space-y-4">
+                    <!-- UDP 服务状态和开关 -->
+                    <div class="flex items-center justify-between">
+                        <span class="text-lg font-bold text-slate-700">服务状态:</span>
+                        <div class="flex items-center space-x-2">
+                            <div id="udp-status-indicator" class="w-4 h-4 rounded-full bg-red-500"></div>
+                            <span id="udp-status-text" class="text-sm font-semibold text-red-500">已停止</span>
+                            <button id="toggle-udp-btn"
+                                    class="bg-green-600 text-white py-1 px-3 rounded-md font-bold hover:bg-green-700 transition-colors shadow-md">
+                                启动服务
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="dest-ip" class="block text-sm font-medium text-slate-600">目标IP地址</label>
+                        <input type="text" id="dest-ip" value="127.0.0.1"
+                               class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
+                    </div>
+                    <div>
+                        <label for="dest-port" class="block text-sm font-medium text-slate-600">目标端口</label>
+                        <input type="number" id="dest-port" value="8000"
+                               class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
+                    </div>
+                    <div>
+                        <label for="local-port" class="block text-sm font-medium text-slate-600">本地接收端口</label>
+                        <input type="number" id="local-port" value="8001"
+                               class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
+                    </div>
+                </div>
+                <hr class="border-slate-200">
+                <h3 class="text-xl font-semibold text-slate-700">已注册命令列表</h3>
+                <ul id="send-commands-list" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                    <!-- 发送命令列表将在这里动态生成 -->
+                </ul>
+            </div>
+
+            <!-- 3. 日志界面 -->
+            <div class="bg-slate-50 p-6 rounded-xl shadow-inner space-y-4">
+                <h2 class="text-2xl font-semibold text-slate-700">日志</h2>
+                <div id="log-container" class="bg-slate-800 text-slate-200 p-4 rounded-md font-mono text-sm shadow-inner overflow-y-auto max-h-[500px] custom-scrollbar">
+                    <!-- 日志信息将在这里动态添加 -->
+                </div>
+                <button id="clear-log-btn"
+                        class="w-full bg-red-600 text-white py-2 px-4 rounded-md font-bold hover:bg-red-700 transition-colors shadow-md">
+                    清空日志
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入渲染进程脚本 -->
+    <script src="renderer.js"></script>
+</body>
+</html>
