@@ -12,3 +12,8 @@
     border-radius: 10px;
     border: 2px solid #e2e8f0;
 }
+
+/* (新增) 为所有按钮添加平滑的颜色和背景色过渡效果 */
+button {
+    transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+}

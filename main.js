@@ -1,22 +1,22 @@
 // main.js
 /**
  * Electron 应用的主进程脚本
- * 
- * 主要功能：
+ * * 主要功能：
  * 1. 创建和管理应用窗口
  * 2. 处理 UDP 服务端和客户端的生命周期
  * 3. 通过 IPC 与渲染进程通信
- * 
- * @file 主进程入口文件
+ * 4. (新增) 处理文件导入导出逻辑
+ * * @file 主进程入口文件
  * @module main
  * @author jinbilianshao
- * @version 1.0.0
+ * @version 1.1.0
  * @license MIT
  */
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const dgram = require('dgram'); // 用于 UDP 通信的 Node.js 模块
+const fs = require('fs/promises'); // 用于文件读写
 
 // UDP 相关变量
 let udpServer = null; // 存储 UDP 服务端实例
@@ -24,17 +24,15 @@ let udpClient = null; // 存储 UDP 客户端实例
 
 /**
  * 创建应用主窗口
- * 
- * 初始化 BrowserWindow 实例并配置相关设置，
+ * * 初始化 BrowserWindow 实例并配置相关设置，
  * 同时初始化 UDP 客户端和设置 IPC 通信处理程序
- * 
- * @function createWindow
+ * * @function createWindow
  * @author jinbilianshao
  */
 const createWindow = () => {
     // 创建浏览器窗口实例
     const win = new BrowserWindow({
-        width: 1000,    // 窗口初始宽度
+        width: 1200,    // 窗口初始宽度 (适当加宽以容纳新按钮)
         height: 800,    // 窗口初始高度
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'), // 预加载脚本路径
@@ -58,15 +56,10 @@ const createWindow = () => {
 
     /**
      * 启动 UDP 服务端
-     * 
-     * 创建 UDP 服务端实例并绑定到指定端口，
-     * 设置相关事件监听器
-     * 
-     * @param {number} port - 要监听的本地端口号
+     * * @param {number} port - 要监听的本地端口号
      * @author jinbilianshao
      */
     const startUDPServer = (port) => {
-        // 检查是否已有运行中的服务端
         if (udpServer) {
             const currentPort = udpServer.address().port;
             win.webContents.send('log-message', 
@@ -74,39 +67,32 @@ const createWindow = () => {
             return;
         }
 
-        // 创建新的 UDP 服务端实例
         udpServer = dgram.createSocket('udp4');
 
-        // 错误事件处理
         udpServer.on('error', (err) => {
             win.webContents.send('log-message', 
                 `UDP服务错误: ${err.stack}`, 'error');
-            stopUDPServer(); // 发生错误时自动停止服务
+            stopUDPServer();
         });
 
-        // 消息接收事件处理
         udpServer.on('message', (msg, rinfo) => {
-            // 将接收到的 Buffer 转换为带空格的十六进制字符串
             const hexString = msg.toString('hex')
-                .match(/.{1,2}/g) // 每两个字符分割
-                .join(' ');       // 用空格连接
+                .match(/.{1,2}/g)
+                .join(' ');
             win.webContents.send('log-message', 
                 `从 ${rinfo.address}:${rinfo.port} 收到回执: ${hexString}`, 'recv');
         });
 
-        // 服务启动成功事件处理
         udpServer.on('listening', () => {
             const address = udpServer.address();
             win.webContents.send('log-message', 
                 `UDP服务已启动，监听地址: ${address.address}:${address.port}`, 'info');
-            // 通知渲染进程服务状态更新
             win.webContents.send('server-status', { 
                 running: true, 
                 port: address.port 
             });
         });
-
-        // 尝试绑定端口
+        
         try {
             udpServer.bind(port);
         } catch (err) {
@@ -118,8 +104,6 @@ const createWindow = () => {
 
     /**
      * 停止 UDP 服务端
-     * 
-     * 关闭 UDP 服务端实例并清理资源
      * @author jinbilianshao
      */
     const stopUDPServer = () => {
@@ -128,47 +112,25 @@ const createWindow = () => {
             return;
         }
         
-        // 关闭服务端
         udpServer.close(() => {
             win.webContents.send('log-message', 'UDP服务已成功关闭。', 'info');
-            // 通知渲染进程服务状态更新
             win.webContents.send('server-status', { running: false });
-            udpServer = null; // 清除引用
+            udpServer = null;
         });
     };
 
     // --- IPC 通信处理 ---
 
-    /**
-     * 处理启动 UDP 服务的请求
-     * @author jinbilianshao
-     */
     ipcMain.handle('start-udp-server', (event, port) => {
         startUDPServer(port);
     });
 
-    /**
-     * 处理停止 UDP 服务的请求
-     * @author jinbilianshao
-     */
     ipcMain.handle('stop-udp-server', () => {
         stopUDPServer();
     });
 
-    /**
-     * 处理发送 UDP 命令的请求
-     * 
-     * 使用持久化的 UDP 客户端发送命令到指定地址和端口
-     * 
-     * @param {Object} command - 命令对象
-     * @param {string} command.ip - 目标 IP 地址
-     * @param {number} command.port - 目标端口
-     * @param {string} command.payload - 十六进制格式的命令内容
-     * @author jinbilianshao
-     */
     ipcMain.handle('send-udp-command', async (event, command) => {
         return new Promise((resolve, reject) => {
-            // 检查客户端是否已初始化
             if (!udpClient) {
                 win.webContents.send('log-message', 
                     'UDP客户端未初始化，无法发送命令。', 'error');
@@ -176,14 +138,11 @@ const createWindow = () => {
             }
 
             try {
-                // 将十六进制字符串转换为 Buffer
-                // 移除所有空格后转换
                 const message = Buffer.from(
                     command.payload.replace(/\s/g, ''), 
                     'hex'
                 );
 
-                // 发送 UDP 消息
                 udpClient.send(
                     message, 
                     command.port, 
@@ -195,9 +154,7 @@ const createWindow = () => {
                                 'error');
                             reject(err);
                         } else {
-                            win.webContents.send('log-message', 
-                                `成功发送 UDP 命令到 ${command.ip}:${command.port}`, 
-                                'sent');
+                            // 成功的日志由渲染进程根据上下文添加，这里只处理失败情况
                             resolve();
                         }
                     }
@@ -209,18 +166,56 @@ const createWindow = () => {
             }
         });
     });
+
+    // --- 文件处理 IPC ---
+    /**
+     * 处理导出命令的请求
+     */
+    ipcMain.handle('export-commands', async (event, commandsData) => {
+        const { canceled, filePath } = await dialog.showSaveDialog({
+            title: '导出命令配置',
+            defaultPath: 'net-cmd-config.json',
+            filters: [{ name: 'JSON Files', extensions: ['json'] }]
+        });
+
+        if (!canceled && filePath) {
+            try {
+                await fs.writeFile(filePath, commandsData);
+                return { success: true };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+        return { success: false, error: '用户取消了操作' };
+    });
+
+    /**
+     * 处理导入命令的请求
+     */
+    ipcMain.handle('import-commands', async () => {
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: '导入命令配置',
+            filters: [{ name: 'JSON Files', extensions: ['json'] }],
+            properties: ['openFile']
+        });
+
+        if (!canceled && filePaths.length > 0) {
+            try {
+                const data = await fs.readFile(filePaths[0], 'utf-8');
+                return { success: true, data };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+        return { success: false, error: '用户取消了操作' };
+    });
 };
 
 // --- 应用生命周期管理 ---
 
-/**
- * 应用准备就绪时创建窗口
- * @author jinbilianshao
- */
 app.whenReady().then(() => {
     createWindow();
 
-    // macOS 特殊处理：当没有窗口时点击 Dock 图标重新创建窗口
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
             createWindow();
@@ -228,14 +223,8 @@ app.whenReady().then(() => {
     });
 });
 
-/**
- * 所有窗口关闭时退出应用
- * @author jinbilianshao
- */
 app.on('window-all-closed', () => {
-    // 非 macOS 平台直接退出
     if (process.platform !== 'darwin') {
-        // 确保关闭所有 UDP 套接字
         if (udpServer) udpServer.close();
         if (udpClient) udpClient.close();
         app.quit();

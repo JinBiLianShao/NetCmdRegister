@@ -6,100 +6,114 @@
     <meta author="jinbilianshao">
     <title>NetCmdRegister - 网络命令注册器</title>
     <script src="tailwindcss.js"></script>
-    <!-- 引入自定义样式 -->
     <link rel="stylesheet" href="styles.css">
 </head>
-<body class="bg-slate-100 font-sans p-6 text-slate-800">
+<body class="bg-slate-100 font-sans text-slate-800">
 
-    <div class="max-w-7xl mx-auto bg-white p-8 rounded-2xl shadow-xl space-y-6">
-        <!-- 应用标题 -->
-        <h1 class="text-4xl font-bold text-center text-slate-900 mb-6">网络命令注册器</h1>
-        <p class="text-center text-slate-500">一个用于测试网口下发不同命令的工具原型</p>
+    <div class="max-w-7xl mx-auto p-4 md:p-6 lg:p-8">
+        <header class="text-center mb-6">
+            <h1 class="text-4xl font-bold text-slate-900">网络命令注册器</h1>
+            <p class="text-slate-500 mt-2">一个用于测试和调试 UDP 命令的工具</p>
+        </header>
 
-        <!-- 主界面容器，分为三列 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-            <!-- 1. 命令注册界面 -->
-            <div class="bg-slate-50 p-6 rounded-xl shadow-inner space-y-4">
-                <h2 class="text-2xl font-semibold text-slate-700">注册命令</h2>
-                <div class="space-y-4">
-                    <div>
-                        <label for="command-name" class="block text-sm font-medium text-slate-600">命令名称</label>
-                        <input type="text" id="command-name" placeholder="例如: 设备重启"
-                               class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
-                    </div>
-                    <div>
-                        <label for="command-payload" class="block text-sm font-medium text-slate-600">命令内容 (十六进制或文本)</label>
-                        <textarea id="command-payload" rows="4" placeholder="例如: 01 02 03 FF 0A"
-                                  class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500"></textarea>
-                    </div>
-                    <button id="add-command-btn"
-                            class="w-full bg-slate-600 text-white py-2 px-4 rounded-md font-bold hover:bg-slate-700 transition-colors shadow-md">
-                        添加命令
-                    </button>
-                </div>
-                <hr class="border-slate-200">
-                <h3 class="text-xl font-semibold text-slate-700">已注册命令</h3>
-                <ul id="registered-commands-list" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
-                    <!-- 命令列表将在这里动态生成 -->
-                </ul>
-            </div>
+            <div class="lg:col-span-2 space-y-6">
 
-            <!-- 2. 用户操作界面 -->
-            <div class="bg-slate-50 p-6 rounded-xl shadow-inner space-y-4">
-                <h2 class="text-2xl font-semibold text-slate-700">发送命令</h2>
-                <div class="space-y-4">
-                    <!-- UDP 服务状态和开关 -->
+                <section class="bg-white p-6 rounded-xl shadow-md ring-1 ring-slate-200">
+                    <h2 class="text-2xl font-semibold text-slate-700 mb-4 border-b pb-3">服务控制</h2>
                     <div class="flex items-center justify-between">
-                        <span class="text-lg font-bold text-slate-700">服务状态:</span>
-                        <div class="flex items-center space-x-2">
-                            <div id="udp-status-indicator" class="w-4 h-4 rounded-full bg-red-500"></div>
-                            <span id="udp-status-text" class="text-sm font-semibold text-red-500">已停止</span>
-                            <button id="toggle-udp-btn"
-                                    class="bg-green-600 text-white py-1 px-3 rounded-md font-bold hover:bg-green-700 transition-colors shadow-md">
-                                启动服务
+                        <div class="flex items-center space-x-3">
+                            <div id="udp-status-indicator" class="w-4 h-4 rounded-full bg-red-500 transition-colors"></div>
+                            <span id="udp-status-text" class="font-semibold text-red-500 transition-colors">服务已停止</span>
+                        </div>
+                        <div class="flex items-center space-x-4">
+                            <div class="flex items-center">
+                                <label for="local-port" class="mr-2 text-sm font-medium text-slate-600">本地监听端口:</label>
+                                <input type="number" id="local-port" value="8001" class="w-24 rounded-md border-slate-300 shadow-sm p-2 text-sm focus:ring-slate-500 focus:border-slate-500">
+                            </div>
+                            <button id="toggle-udp-btn" class="bg-green-600 text-white py-2 px-4 rounded-md font-bold hover:bg-green-700 transition-all shadow-md flex items-center space-x-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" /></svg>
+                                <span>启动服务</span>
                             </button>
                         </div>
                     </div>
+                </section>
 
-                    <div>
-                        <label for="dest-ip" class="block text-sm font-medium text-slate-600">目标IP地址</label>
-                        <input type="text" id="dest-ip" value="127.0.0.1"
-                               class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
+                <section class="bg-white p-6 rounded-xl shadow-md ring-1 ring-slate-200">
+                    <h2 class="text-2xl font-semibold text-slate-700 mb-4 border-b pb-3">命令管理</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-4">
+                            <div>
+                                <label for="command-name" class="block text-sm font-medium text-slate-600">命令名称</label>
+                                <input type="text" id="command-name" placeholder="例如: 设备重启" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
+                            </div>
+                            <div>
+                                <label for="command-payload" class="block text-sm font-medium text-slate-600">命令内容 (十六进制)</label>
+                                <textarea id="command-payload" rows="3" placeholder="例如: 01 02 03 FF 0A" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500"></textarea>
+                            </div>
+                            <button id="add-command-btn" class="w-full bg-slate-600 text-white py-2 px-4 rounded-md font-bold hover:bg-slate-700 transition-colors shadow-md flex items-center justify-center space-x-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+                                <span>添加/更新命令</span>
+                            </button>
+                        </div>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between bg-slate-100 p-2 rounded-md">
+                                <div class="flex items-center space-x-2">
+                                    <input type="checkbox" id="select-all-checkbox" class="h-4 w-4 rounded border-slate-300 text-slate-600 focus:ring-slate-500">
+                                    <label for="select-all-checkbox" class="text-sm font-medium text-slate-600">全选</label>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <button id="import-commands-btn" title="导入配置" class="text-xs bg-blue-600 text-white p-2 rounded-md font-bold hover:bg-blue-700 transition-colors shadow-sm">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
+                                    </button>
+                                    <button id="export-commands-btn" title="导出配置" class="text-xs bg-slate-500 text-white p-2 rounded-md font-bold hover:bg-slate-600 transition-colors shadow-sm">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <ul id="registered-commands-list" class="space-y-2 h-48 overflow-y-auto custom-scrollbar border p-2 rounded-md"></ul>
+                        </div>
                     </div>
-                    <div>
-                        <label for="dest-port" class="block text-sm font-medium text-slate-600">目标端口</label>
-                        <input type="number" id="dest-port" value="8000"
-                               class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
+                </section>
+                
+                <section class="bg-white p-6 rounded-xl shadow-md ring-1 ring-slate-200">
+                    <h2 class="text-2xl font-semibold text-slate-700 mb-4 border-b pb-3">命令发送</h2>
+                    <div class="flex items-end justify-between space-x-4">
+                        <div class="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="dest-ip" class="block text-sm font-medium text-slate-600">目标IP地址</label>
+                                <input type="text" id="dest-ip" value="127.0.0.1" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
+                            </div>
+                            <div>
+                                <label for="dest-port" class="block text-sm font-medium text-slate-600">目标端口</label>
+                                <input type="number" id="dest-port" value="8000" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
+                            </div>
+                        </div>
+                        <button id="send-selected-btn" class="bg-green-600 text-white h-10 px-6 rounded-md font-bold hover:bg-green-700 transition-colors shadow-md flex items-center justify-center space-x-2 flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
+                            <span>发送所选</span>
+                        </button>
                     </div>
-                    <div>
-                        <label for="local-port" class="block text-sm font-medium text-slate-600">本地接收端口</label>
-                        <input type="number" id="local-port" value="8001"
-                               class="mt-1 block w-full rounded-md border-slate-300 shadow-sm p-2 focus:ring-slate-500 focus:border-slate-500">
-                    </div>
-                </div>
-                <hr class="border-slate-200">
-                <h3 class="text-xl font-semibold text-slate-700">已注册命令列表</h3>
-                <ul id="send-commands-list" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
-                    <!-- 发送命令列表将在这里动态生成 -->
-                </ul>
+                </section>
+
             </div>
 
-            <!-- 3. 日志界面 -->
-            <div class="bg-slate-50 p-6 rounded-xl shadow-inner space-y-4">
-                <h2 class="text-2xl font-semibold text-slate-700">日志</h2>
-                <div id="log-container" class="bg-slate-800 text-slate-200 p-4 rounded-md font-mono text-sm shadow-inner overflow-y-auto max-h-[500px] custom-scrollbar">
-                    <!-- 日志信息将在这里动态添加 -->
-                </div>
-                <button id="clear-log-btn"
-                        class="w-full bg-red-600 text-white py-2 px-4 rounded-md font-bold hover:bg-red-700 transition-colors shadow-md">
-                    清空日志
-                </button>
+            <div class="lg:col-span-1 space-y-4 flex flex-col">
+                <section class="bg-white p-6 rounded-xl shadow-md ring-1 ring-slate-200 flex-grow flex flex-col">
+                    <div class="flex justify-between items-center border-b pb-3 mb-4">
+                        <h2 class="text-2xl font-semibold text-slate-700">实时日志</h2>
+                        <button id="clear-log-btn" class="bg-red-600 text-white py-1 px-3 rounded-md font-bold hover:bg-red-700 transition-colors shadow-sm text-sm">
+                            清空日志
+                        </button>
+                    </div>
+                    <div id="log-container" class="bg-slate-800 text-slate-200 p-4 rounded-md font-mono text-sm shadow-inner overflow-y-auto flex-grow custom-scrollbar">
+                        </div>
+                </section>
             </div>
         </div>
     </div>
 
-    <!-- 导入渲染进程脚本 -->
     <script src="renderer.js"></script>
 </body>
 </html>
