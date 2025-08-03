@@ -4,35 +4,52 @@
  * * @file 渲染进程主脚本
  * @module renderer
  * @author jinbilianshao
- * @version 1.2.0
+ * @version 1.5.0
  * @license MIT
  */
 
 // --- 全局变量定义 ---
 let commands = [];
 let isServerRunning = false;
+let isScheduledSending = false;
+let scheduledSendTimer = null;
 
 // --- DOM 元素获取 ---
+// 命令管理
 const commandNameInput = document.getElementById('command-name');
 const commandPayloadTextarea = document.getElementById('command-payload');
 const addCommandBtn = document.getElementById('add-command-btn');
 const registeredCommandsList = document.getElementById('registered-commands-list');
-
+// 批量操作
 const selectAllCheckbox = document.getElementById('select-all-checkbox');
-const sendSelectedBtn = document.getElementById('send-selected-btn');
 const importCommandsBtn = document.getElementById('import-commands-btn');
 const exportCommandsBtn = document.getElementById('export-commands-btn');
-
+// 发送控制
 const destIpInput = document.getElementById('dest-ip');
 const destPortInput = document.getElementById('dest-port');
+const sendSelectedBtn = document.getElementById('send-selected-btn');
+// 服务控制
 const localPortInput = document.getElementById('local-port');
-
-const logContainer = document.getElementById('log-container');
-const clearLogBtn = document.getElementById('clear-log-btn');
-
 const udpStatusIndicator = document.getElementById('udp-status-indicator');
 const udpStatusText = document.getElementById('udp-status-text');
 const toggleUdpBtn = document.getElementById('toggle-udp-btn');
+// 日志
+const logContainer = document.getElementById('log-container');
+const clearLogBtn = document.getElementById('clear-log-btn');
+const logEmptyState = document.getElementById('log-empty-state');
+// 定时发送
+const sendIntervalInput = document.getElementById('send-interval-input');
+const toggleScheduledSendBtn = document.getElementById('toggle-scheduled-send-btn');
+const scheduledSendBtnText = document.getElementById('scheduled-send-btn-text');
+const playIcon = toggleScheduledSendBtn.querySelector('.play-icon');
+const stopIcon = toggleScheduledSendBtn.querySelector('.stop-icon');
+const intervalWarning = document.getElementById('interval-warning');
+// (新增) 页签相关
+const tabListBtn = document.getElementById('tab-list-btn');
+const tabAddBtn = document.getElementById('tab-add-btn');
+const tabPanelList = document.getElementById('tab-panel-list');
+const tabPanelAdd = document.getElementById('tab-panel-add');
+
 
 // --- 辅助函数 ---
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -40,23 +57,23 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // --- UI 渲染和数据管理 ---
 
 const addLog = (message, type = 'info') => {
+    if(logEmptyState) {
+        logEmptyState.remove();
+    }
     const now = new Date().toLocaleTimeString();
     const logEntry = document.createElement('div');
-    
     let colorClass = 'text-slate-400';
     if (type === 'sent') colorClass = 'text-green-400';
     else if (type === 'error') colorClass = 'text-red-400';
     else if (type === 'recv') colorClass = 'text-blue-400';
-    
     logEntry.innerHTML = `<span class="text-slate-500">[${now}]</span> <span class="${colorClass}">${message}</span>`;
     logContainer.prepend(logEntry);
 };
 
 const renderRegisteredCommands = () => {
     registeredCommandsList.innerHTML = '';
-    
     if (commands.length === 0) {
-        registeredCommandsList.innerHTML = `<li class="text-slate-400 text-center p-4">暂无命令</li>`;
+        registeredCommandsList.innerHTML = `<li class="text-slate-400 text-center p-4">暂无命令，请在"添加/编辑"页签中新增。</li>`;
     } else {
         commands.forEach((cmd, index) => {
             const li = document.createElement('li');
@@ -70,14 +87,9 @@ const renderRegisteredCommands = () => {
                     </div>
                 </div>
                 <div class="flex space-x-2 ml-2 flex-shrink-0">
-                    <button class="edit-btn text-slate-600 hover:text-slate-800 transition-colors p-1" title="编辑" data-index="${index}">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg>
-                    </button>
-                    <button class="delete-btn text-red-500 hover:text-red-700 transition-colors p-1" title="删除" data-index="${index}">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
-                    </button>
-                </div>
-            `;
+                    <button class="edit-btn text-slate-600 hover:text-slate-800 transition-colors p-1" title="编辑" data-index="${index}"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg></button>
+                    <button class="delete-btn text-red-500 hover:text-red-700 transition-colors p-1" title="删除" data-index="${index}"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg></button>
+                </div>`;
             registeredCommandsList.appendChild(li);
         });
     }
@@ -87,7 +99,6 @@ const renderRegisteredCommands = () => {
 const updateSelectAllCheckboxState = () => {
     const allCheckboxes = document.querySelectorAll('.command-checkbox');
     const checkedCount = document.querySelectorAll('.command-checkbox:checked').length;
-
     if (allCheckboxes.length === 0) {
         selectAllCheckbox.checked = false;
         selectAllCheckbox.indeterminate = false;
@@ -124,7 +135,6 @@ const loadCommands = () => {
 const updateServerStatusUI = (running, port = null) => {
     isServerRunning = running;
     const btnSpan = toggleUdpBtn.querySelector('span');
-    
     if (running) {
         udpStatusIndicator.classList.replace('bg-red-500', 'bg-green-500');
         udpStatusText.textContent = `运行中 (端口: ${port})`;
@@ -142,17 +152,52 @@ const updateServerStatusUI = (running, port = null) => {
     }
 };
 
+const updateScheduledSendUI = () => {
+    if (isScheduledSending) {
+        scheduledSendBtnText.textContent = '停止定时';
+        toggleScheduledSendBtn.classList.replace('bg-indigo-600', 'bg-red-600');
+        toggleScheduledSendBtn.classList.replace('hover:bg-indigo-700', 'hover:bg-red-700');
+        playIcon.classList.add('hidden');
+        stopIcon.classList.remove('hidden');
+        sendSelectedBtn.disabled = true;
+        sendIntervalInput.disabled = true;
+        sendSelectedBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    } else {
+        scheduledSendBtnText.textContent = '开始定时';
+        toggleScheduledSendBtn.classList.replace('bg-red-600', 'bg-indigo-600');
+        toggleScheduledSendBtn.classList.replace('hover:bg-red-700', 'hover:bg-indigo-700');
+        playIcon.classList.remove('hidden');
+        stopIcon.classList.add('hidden');
+        sendSelectedBtn.disabled = false;
+        sendIntervalInput.disabled = false;
+        sendSelectedBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+};
+
+// (新增) 页签切换逻辑
+const switchTab = (tabName) => {
+    if (tabName === 'add') {
+        tabPanelAdd.classList.remove('hidden');
+        tabPanelList.classList.add('hidden');
+        tabAddBtn.classList.add('active');
+        tabListBtn.classList.remove('active');
+    } else { // 'list'
+        tabPanelAdd.classList.add('hidden');
+        tabPanelList.classList.remove('hidden');
+        tabAddBtn.classList.remove('active');
+        tabListBtn.classList.add('active');
+    }
+};
+
 // --- 事件处理函数 ---
 
 const handleAddCommand = () => {
     const name = commandNameInput.value.trim();
     const payload = commandPayloadTextarea.value.trim();
-    
     if (!name || !payload) {
         addLog('命令名称和内容不能为空！', 'error');
         return;
     }
-
     const existingIndex = commands.findIndex(cmd => cmd.name === name);
     if (existingIndex !== -1) {
         commands[existingIndex] = { name, payload };
@@ -161,13 +206,14 @@ const handleAddCommand = () => {
         commands.push({ name, payload });
         addLog(`命令 "${name}" 已添加。`);
     }
-
     commandNameInput.value = '';
     commandPayloadTextarea.value = '';
-    const btnSpan = addCommandBtn.querySelector('span');
-    btnSpan.textContent = '添加/更新命令';
+    addCommandBtn.querySelector('span').textContent = '添加/更新命令';
     saveCommands();
     renderRegisteredCommands();
+    selectAllCheckbox.checked = false;
+    handleSelectAll();
+    switchTab('list'); // (修改) 操作完成后自动切换回列表
 };
 
 const handleSendSelectedCommands = async () => {
@@ -176,17 +222,13 @@ const handleSendSelectedCommands = async () => {
         addLog('没有选中任何命令，无法发送。', 'error');
         return;
     }
-
     const destIp = destIpInput.value.trim();
     const destPort = parseInt(destPortInput.value.trim(), 10);
-
     if (!destIp || isNaN(destPort)) {
         addLog('请填写有效的目标IP和端口！', 'error');
         return;
     }
-
     addLog(`开始批量发送 ${checkedCheckboxes.length} 条命令至 ${destIp}:${destPort}...`, 'info');
-
     for (const checkbox of checkedCheckboxes) {
         const index = parseInt(checkbox.dataset.index, 10);
         const command = commands[index];
@@ -194,10 +236,8 @@ const handleSendSelectedCommands = async () => {
             try {
                 await window.electronAPI.sendUDPCommand({ ip: destIp, port: destPort, payload: command.payload });
                 addLog(`成功发送: "${command.name}" | 内容: ${command.payload}`, 'sent');
-                await sleep(50); // 短暂延迟
-            } catch (e) {
-                // 错误日志已由主进程通过 onLogMessage 发送
-            }
+                await sleep(50);
+            } catch (e) {}
         }
     }
     addLog('批量发送完成。', 'info');
@@ -206,12 +246,7 @@ const handleSendSelectedCommands = async () => {
 const handleRegisteredListActions = (event) => {
     const target = event.target.closest('button, input');
     if (!target) return;
-
-    const li = target.closest('li');
-    if (!li) return;
-
     const index = parseInt(target.dataset.index, 10);
-    
     if (target.classList.contains('delete-btn')) {
         const cmdName = commands[index].name;
         commands.splice(index, 1);
@@ -222,9 +257,9 @@ const handleRegisteredListActions = (event) => {
         const cmdToEdit = commands[index];
         commandNameInput.value = cmdToEdit.name;
         commandPayloadTextarea.value = cmdToEdit.payload;
-        const btnSpan = addCommandBtn.querySelector('span');
-        btnSpan.textContent = `更新 "${cmdToEdit.name}"`;
+        addCommandBtn.querySelector('span').textContent = `更新 "${cmdToEdit.name}"`;
         addLog(`正在编辑命令 "${cmdToEdit.name}"。`);
+        switchTab('add'); // (修改) 切换到编辑页签
         commandNameInput.focus();
     } else if (target.classList.contains('command-checkbox')) {
         updateSelectAllCheckboxState();
@@ -237,7 +272,6 @@ const handleToggleUdpService = async () => {
         addLog('本地监听端口无效！', 'error');
         return;
     }
-
     if (isServerRunning) {
         await window.electronAPI.stopUDPServer();
     } else {
@@ -286,11 +320,73 @@ const handleExportCommands = async () => {
     }
 };
 
+const executeScheduledSend = async () => {
+    const checkedCheckboxes = document.querySelectorAll('.command-checkbox:checked');
+    if (checkedCheckboxes.length === 0) {
+        addLog('没有选中任何命令，定时发送已自动停止。', 'error');
+        handleToggleScheduledSend();
+        return;
+    }
+    const destIp = destIpInput.value.trim();
+    const destPort = parseInt(destPortInput.value.trim(), 10);
+    if (!destIp || isNaN(destPort)) {
+        addLog('目标IP或端口无效，定时发送已自动停止。', 'error');
+        handleToggleScheduledSend();
+        return;
+    }
+    for (const checkbox of checkedCheckboxes) {
+        const index = parseInt(checkbox.dataset.index, 10);
+        const command = commands[index];
+        if (command) {
+            try {
+                await window.electronAPI.sendUDPCommand({ ip: destIp, port: destPort, payload: command.payload });
+                addLog(`(定时)发送: "${command.name}"`, 'sent');
+                await sleep(50);
+            } catch (e) {}
+        }
+    }
+};
+
+const handleToggleScheduledSend = () => {
+    if (isScheduledSending) {
+        clearInterval(scheduledSendTimer);
+        scheduledSendTimer = null;
+        isScheduledSending = false;
+        addLog('定时发送已停止。', 'info');
+    } else {
+        const interval = parseInt(sendIntervalInput.value, 10);
+        if (isNaN(interval) || interval < 1) { // 允许最小1ms
+            addLog('发送间隔无效，必须是大于等于1的数字(毫秒)。', 'error');
+            return;
+        }
+        if (document.querySelectorAll('.command-checkbox:checked').length === 0) {
+            addLog('请至少选择一个命令来开始定时发送。', 'error');
+            return;
+        }
+        isScheduledSending = true;
+        addLog(`定时发送已启动，间隔 ${interval} 毫秒。`, 'info');
+        executeScheduledSend();
+        scheduledSendTimer = setInterval(executeScheduledSend, interval);
+    }
+    updateScheduledSendUI();
+};
+
+const handleIntervalChange = (event) => {
+    const value = parseInt(event.target.value, 10);
+    if (!isNaN(value) && value < 20) {
+        intervalWarning.classList.remove('hidden');
+        intervalWarning.classList.add('flex');
+    } else {
+        intervalWarning.classList.add('hidden');
+        intervalWarning.classList.remove('flex');
+    }
+};
+
 // --- 事件监听器绑定 ---
 addCommandBtn.addEventListener('click', handleAddCommand);
 registeredCommandsList.addEventListener('click', handleRegisteredListActions);
 clearLogBtn.addEventListener('click', () => {
-    logContainer.innerHTML = '';
+    logContainer.innerHTML = `<div id="log-empty-state" class="flex items-center justify-center h-full text-slate-500">日志为空</div>`;
     addLog('日志已清空。');
 });
 toggleUdpBtn.addEventListener('click', handleToggleUdpService);
@@ -298,10 +394,18 @@ selectAllCheckbox.addEventListener('click', handleSelectAll);
 sendSelectedBtn.addEventListener('click', handleSendSelectedCommands);
 importCommandsBtn.addEventListener('click', handleImportCommands);
 exportCommandsBtn.addEventListener('click', handleExportCommands);
+toggleScheduledSendBtn.addEventListener('click', handleToggleScheduledSend);
+sendIntervalInput.addEventListener('input', handleIntervalChange);
+tabListBtn.addEventListener('click', () => switchTab('list'));
+tabAddBtn.addEventListener('click', () => switchTab('add'));
+
 
 // --- 主进程通信监听 ---
 window.electronAPI.onLogMessage((message, type) => addLog(message, type));
 window.electronAPI.onServerStatus((status) => updateServerStatusUI(status.running, status.port));
 
 // --- 初始化 ---
-window.addEventListener('load', loadCommands);
+window.addEventListener('load', () => {
+    loadCommands();
+    switchTab('list'); // 默认显示列表页签
+});

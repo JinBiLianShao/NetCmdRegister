@@ -4,16 +4,30 @@
     width: 8px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
-    background: #e2e8f0;
+    background: #f1f5f9; /* slate-100 */
     border-radius: 10px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: #94a3b8;
+    background-color: #94a3b8; /* slate-400 */
     border-radius: 10px;
-    border: 2px solid #e2e8f0;
+    border: 2px solid #f1f5f9; /* slate-100 */
 }
 
-/* (新增) 为所有按钮添加平滑的颜色和背景色过渡效果 */
-button {
-    transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+/* 按钮和输入框的通用过渡效果 */
+button, input, textarea {
+    transition: all 0.2s ease-in-out;
+}
+
+/* (新增) 页签激活状态样式 */
+.tab-btn {
+    border-color: transparent;
+    color: #475569; /* slate-600 */
+}
+.tab-btn:hover {
+    border-color: #cbd5e1; /* slate-300 */
+    color: #1e293b; /* slate-800 */
+}
+.tab-btn.active {
+    border-color: #4f46e5; /* indigo-600 */
+    color: #4f46e5; /* indigo-600 */
 }
