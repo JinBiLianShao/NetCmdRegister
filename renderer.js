@@ -46,6 +46,64 @@ const tabPanelAdd = document.getElementById('tab-panel-add');
 // --- 工具函数 ---
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * 解析 NetAssist 软件的 .cfg 文件
+ * 支持 [BATCHSEND] 和 [SHORTCUT] 区域
+ * @param {string} cfgData - 文件内容
+ * @returns {Array<{name: string, payload: string}>}
+ */
+const parseCfgCommands = (cfgData) => {
+    const parsedCmds = [];
+    const lines = cfgData.split(/\r?\n/);
+    let inBatchSendSection = false;
+    let inShortcutSection = false;
+
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+
+        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+            const section = trimmed.toUpperCase();
+            inBatchSendSection = (section === '[BATCHSEND]');
+            inShortcutSection = (section === '[SHORTCUT]');
+            return;
+        }
+
+        if (inBatchSendSection) {
+            const parts = trimmed.split('=');
+            if (parts.length >= 2) {
+                const valuePart = parts.slice(1).join('=');
+                const fields = valuePart.split('|');
+                if (fields.length >= 5) {
+                    const name = fields[3].trim();
+                    const payload = fields[4].trim();
+                    if (name && payload) {
+                        parsedCmds.push({ name, payload });
+                    }
+                }
+            }
+        }
+
+        if (inShortcutSection) {
+            const parts = trimmed.split('=');
+            if (parts.length >= 2) {
+                const name = parts[0].trim();
+                const valuePart = parts.slice(1).join('=');
+                const fields = valuePart.split('|');
+                if (fields.length >= 4) {
+                    const rawPayload = fields[3].trim();
+                    const payload = rawPayload.match(/.{1,2}/g)?.join(' ')?.toUpperCase() || '';
+                    if (name && payload) {
+                        parsedCmds.push({ name, payload });
+                    }
+                }
+            }
+        }
+    });
+
+    return parsedCmds;
+};
+
 // --- 日志处理 ---
 const addLog = (message, type = 'info') => {
     if (logEmptyState) logEmptyState.style.display = 'none';
@@ -92,7 +150,7 @@ const renderRegisteredCommands = () => {
     updateSelectAllCheckboxState();
 };
 
-// --- 复选框全选状态更新 ---
+// --- 全选状态更新 ---
 const updateSelectAllCheckboxState = () => {
     const allCheckboxes = document.querySelectorAll('.command-checkbox');
     const checkedCount = document.querySelectorAll('.command-checkbox:checked').length;
@@ -145,26 +203,6 @@ const updateServerStatusUI = (running, port = null) => {
     }
 };
 
-const updateScheduledSendUI = () => {
-    if (isScheduledSending) {
-        scheduledSendBtnText.textContent = '停止定时';
-        toggleScheduledSendBtn.classList.replace('bg-indigo-600', 'bg-red-600');
-        toggleScheduledSendBtn.classList.replace('hover:bg-indigo-700', 'hover:bg-red-700');
-        playIcon.classList.add('hidden');
-        stopIcon.classList.remove('hidden');
-        sendSelectedBtn.disabled = true;
-        sendIntervalInput.disabled = true;
-    } else {
-        scheduledSendBtnText.textContent = '开始定时';
-        toggleScheduledSendBtn.classList.replace('bg-red-600', 'bg-indigo-600');
-        toggleScheduledSendBtn.classList.replace('hover:bg-red-700', 'hover:bg-indigo-700');
-        playIcon.classList.remove('hidden');
-        stopIcon.classList.add('hidden');
-        sendSelectedBtn.disabled = false;
-        sendIntervalInput.disabled = false;
-    }
-};
-
 // --- TAB 切换 ---
 const switchTab = (tabName) => {
     if (tabName === 'add') {
@@ -181,7 +219,7 @@ const switchTab = (tabName) => {
 };
 
 // --- 事件处理 ---
-// 添加/更新命令
+// 添加命令
 const handleAddCommand = () => {
     const name = commandNameInput.value.trim();
     const payload = commandPayloadTextarea.value.trim();
@@ -206,7 +244,7 @@ const handleAddCommand = () => {
     switchTab('list');
 };
 
-// 发送所选命令
+// 发送所选
 const handleSendSelectedCommands = async () => {
     const checked = document.querySelectorAll('.command-checkbox:checked');
     if (checked.length === 0) {
@@ -232,7 +270,7 @@ const handleSendSelectedCommands = async () => {
     addLog('批量发送完成。');
 };
 
-// 列表按钮处理（删除、编辑、单条发送）
+// 列表操作（编辑/删除/发送）
 const handleRegisteredListActions = (e) => {
     const target = e.target.closest('button, input');
     if (!target) return;
@@ -248,7 +286,6 @@ const handleRegisteredListActions = (e) => {
         commandNameInput.value = cmd.name;
         commandPayloadTextarea.value = cmd.payload;
         addCommandBtn.querySelector('span').textContent = `更新 "${cmd.name}"`;
-        addLog(`正在编辑命令 "${cmd.name}"。`);
         switchTab('add');
     } else if (target.classList.contains('send-btn')) {
         const cmd = commands[idx];
@@ -259,14 +296,14 @@ const handleRegisteredListActions = (e) => {
             return;
         }
         window.electronAPI.sendUDPCommand({ ip: destIp, port: destPort, payload: cmd.payload })
-            .then(() => addLog(`成功发送: "${cmd.name}" | ${cmd.payload}`, 'sent'))
+            .then(() => addLog(`发送成功: "${cmd.name}"`, 'sent'))
             .catch(() => addLog(`发送失败: "${cmd.name}"`, 'error'));
     } else if (target.classList.contains('command-checkbox')) {
         updateSelectAllCheckboxState();
     }
 };
 
-// UDP 服务开关
+// UDP 服务
 const handleToggleUdpService = async () => {
     const localPort = parseInt(localPortInput.value.trim(), 10);
     if (isNaN(localPort) || localPort < 1 || localPort > 65535) {
@@ -280,18 +317,45 @@ const handleToggleUdpService = async () => {
     }
 };
 
-// 全选复选框
+// 全选
 const handleSelectAll = () => {
     const isChecked = selectAllCheckbox.checked;
     document.querySelectorAll('.command-checkbox').forEach(cb => cb.checked = isChecked);
     updateSelectAllCheckboxState();
 };
 
+// 导入命令
+const handleImportCommands = async () => {
+    const result = await window.electronAPI.importCommands();
+    if (result.success) {
+        try {
+            const imported = result.filePath.toLowerCase().endsWith('.json')
+                ? JSON.parse(result.data)
+                : parseCfgCommands(result.data);
+            if (Array.isArray(imported)) {
+                commands = imported;
+                saveCommands();
+                renderRegisteredCommands();
+                addLog(`导入 ${commands.length} 条命令。`);
+            }
+        } catch (e) {
+            addLog(`导入失败: ${e.message}`, 'error');
+        }
+    }
+};
+
+// 导出命令
+const handleExportCommands = async () => {
+    if (commands.length === 0) return addLog('没有可导出的命令。', 'error');
+    const result = await window.electronAPI.exportCommands(JSON.stringify(commands, null, 2));
+    if (result.success) addLog('命令已成功导出。');
+};
+
 // 定时发送
 const executeScheduledSend = async () => {
     const checked = document.querySelectorAll('.command-checkbox:checked');
     if (checked.length === 0) {
-        addLog('没有选中任何命令，定时发送已自动停止。', 'error');
+        addLog('没有选中任何命令，定时发送已停止。', 'error');
         handleToggleScheduledSend();
         return;
     }
@@ -336,6 +400,27 @@ const handleToggleScheduledSend = () => {
     updateScheduledSendUI();
 };
 
+// UI 更新定时状态
+const updateScheduledSendUI = () => {
+    if (isScheduledSending) {
+        scheduledSendBtnText.textContent = '停止定时';
+        toggleScheduledSendBtn.classList.replace('bg-indigo-600', 'bg-red-600');
+        toggleScheduledSendBtn.classList.replace('hover:bg-indigo-700', 'hover:bg-red-700');
+        playIcon.classList.add('hidden');
+        stopIcon.classList.remove('hidden');
+        sendSelectedBtn.disabled = true;
+        sendIntervalInput.disabled = true;
+    } else {
+        scheduledSendBtnText.textContent = '开始定时';
+        toggleScheduledSendBtn.classList.replace('bg-red-600', 'bg-indigo-600');
+        toggleScheduledSendBtn.classList.replace('hover:bg-red-700', 'hover:bg-indigo-700');
+        playIcon.classList.remove('hidden');
+        stopIcon.classList.add('hidden');
+        sendSelectedBtn.disabled = false;
+        sendIntervalInput.disabled = false;
+    }
+};
+
 // 发送间隔提示
 const handleIntervalChange = (e) => {
     const val = parseInt(e.target.value, 10);
@@ -357,29 +442,8 @@ clearLogBtn.addEventListener('click', () => {
 toggleUdpBtn.addEventListener('click', handleToggleUdpService);
 selectAllCheckbox.addEventListener('click', handleSelectAll);
 sendSelectedBtn.addEventListener('click', handleSendSelectedCommands);
-importCommandsBtn.addEventListener('click', async () => {
-    const result = await window.electronAPI.importCommands();
-    if (result.success) {
-        try {
-            const imported = result.filePath.toLowerCase().endsWith('.json')
-                ? JSON.parse(result.data)
-                : parseCfgCommands(result.data);
-            if (Array.isArray(imported)) {
-                commands = imported;
-                saveCommands();
-                renderRegisteredCommands();
-                addLog(`导入 ${commands.length} 条命令。`);
-            }
-        } catch (e) {
-            addLog(`导入失败: ${e.message}`, 'error');
-        }
-    }
-});
-exportCommandsBtn.addEventListener('click', async () => {
-    if (commands.length === 0) return addLog('没有可导出的命令。', 'error');
-    const result = await window.electronAPI.exportCommands(JSON.stringify(commands, null, 2));
-    if (result.success) addLog('命令已成功导出。');
-});
+importCommandsBtn.addEventListener('click', handleImportCommands);
+exportCommandsBtn.addEventListener('click', handleExportCommands);
 toggleScheduledSendBtn.addEventListener('click', handleToggleScheduledSend);
 sendIntervalInput.addEventListener('input', handleIntervalChange);
 tabListBtn.addEventListener('click', () => switchTab('list'));

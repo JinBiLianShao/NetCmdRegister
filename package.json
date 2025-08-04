@@ -26,17 +26,25 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "ia32",
-            "x64"
-          ]
+          "arch": ["ia32", "x64"]
         }
       ]
+    },
+    "linux": {
+      "icon": "./icons", 
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "category": "Utility",
+      "maintainer": "liansixin <2013182991@qq.com>"
     }
   },
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "build:linux": "electron-builder --linux"
   },
   "devDependencies": {
     "app-builder-lib": "^26.0.12",
