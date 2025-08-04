@@ -4,7 +4,7 @@
  * * @file 渲染进程主脚本
  * @module renderer
  * @author jinbilianshao
- * @version 1.7.0
+ * @version 1.8.0
  * @license MIT
  */
 
@@ -54,7 +54,8 @@ const tabPanelAdd = document.getElementById('tab-panel-add');
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * (新) 解析 NetAssist .cfg 文件格式的命令
+ * (更新) 解析兼容NetAssist软件的.cfg文件
+ * 支持 [BATCHSEND] 和 [SHORTCUT] 区域
  * @param {string} cfgData - 从 .cfg 文件读取的原始文本数据
  * @returns {Array<object>} 解析后的命令对象数组
  */
@@ -62,25 +63,48 @@ const parseCfgCommands = (cfgData) => {
     const parsedCmds = [];
     const lines = cfgData.split(/\r?\n/);
     let inBatchSendSection = false;
+    let inShortcutSection = false;
 
     lines.forEach(line => {
         const trimmedLine = line.trim();
 
+        // 切换区域
         if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
-            inBatchSendSection = (trimmedLine.toUpperCase() === '[BATCHSEND]');
+            const section = trimmedLine.toUpperCase();
+            inBatchSendSection = (section === '[BATCHSEND]');
+            inShortcutSection = (section === '[SHORTCUT]');
             return;
         }
 
+        // 解析 [BATCHSEND] 区域
         if (inBatchSendSection && trimmedLine) {
             const parts = trimmedLine.split('=');
             if (parts.length >= 2) {
                 const valuePart = parts.slice(1).join('=');
                 const fields = valuePart.split('|');
-                
-                // NetAssist格式: ...|命令名称|命令内容
+                // 格式: ...|命令名称|命令内容
                 if (fields.length >= 5) {
                     const name = fields[3].trim();
                     const payload = fields[4].trim();
+                    if (name && payload) {
+                        parsedCmds.push({ name, payload });
+                    }
+                }
+            }
+        }
+        
+        // (新增) 解析 [SHORTCUT] 区域
+        else if (inShortcutSection && trimmedLine) {
+            const parts = trimmedLine.split('=');
+            if (parts.length >= 2) {
+                const name = parts[0].trim();
+                const valuePart = parts.slice(1).join('=');
+                const fields = valuePart.split('|');
+                // 格式: ...|...|...|命令内容
+                if (fields.length >= 4) {
+                    const rawPayload = fields[3].trim();
+                    // 将连续的十六进制字符串格式化为空格分隔的形式
+                    const payload = rawPayload.match(/.{1,2}/g)?.join(' ')?.toUpperCase() || '';
                     if (name && payload) {
                         parsedCmds.push({ name, payload });
                     }
