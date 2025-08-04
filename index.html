@@ -8,15 +8,15 @@
     <script src="tailwindcss.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
-<body class="bg-slate-50 font-sans text-slate-800">
+<body class="bg-slate-50 font-sans text-slate-800 flex flex-col min-h-screen">
 
-    <div class="max-w-7xl mx-auto p-4 md:p-6 lg:p-8">
+    <div class="max-w-7xl mx-auto p-4 md:p-6 lg:p-8 flex-grow w-full">
         <header class="text-center mb-6">
             <h1 class="text-4xl font-bold text-slate-900">网络命令注册器</h1>
             <p class="text-slate-500 mt-2">一个用于测试和调试 UDP 命令的工具</p>
         </header>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
 
             <div class="lg:col-span-2 space-y-6">
 
@@ -85,7 +85,7 @@
                                     </button>
                                 </div>
                             </div>
-                            <ul id="registered-commands-list" class="space-y-2 h-48 overflow-y-auto custom-scrollbar border p-2 rounded-md bg-slate-50"></ul>
+                            <ul id="registered-commands-list" class="space-y-2 min-h-[10rem] max-h-64 overflow-y-auto custom-scrollbar border p-2 rounded-md bg-slate-50"></ul>
                         </div>
                     </div>
                 </section>
@@ -130,20 +130,27 @@
             </div>
 
             <div class="lg:col-span-1 space-y-4 flex flex-col">
-                <section class="bg-white p-6 rounded-xl shadow-md ring-1 ring-slate-200 flex-grow flex flex-col min-h-[800px]">
+                <section class="bg-white p-6 rounded-xl shadow-md ring-1 ring-slate-200 flex-grow flex flex-col">
                     <div class="flex justify-between items-center border-b border-slate-200 pb-3 mb-4">
                         <h2 class="text-2xl font-semibold text-slate-700">实时日志</h2>
                         <button id="clear-log-btn" class="bg-red-600 text-white py-1 px-3 rounded-md font-bold hover:bg-red-700 transition-colors shadow-sm text-sm">
                             清空日志
                         </button>
                     </div>
-                    <div id="log-container" class="bg-slate-800 text-slate-200 p-4 rounded-md font-mono text-sm shadow-inner overflow-y-auto custom-scrollbar flex-grow min-h-0 max-h-[700px]">
+                    <div id="log-container" class="bg-slate-800 text-slate-200 p-4 rounded-md font-mono text-sm shadow-inner overflow-y-auto custom-scrollbar flex-grow min-h-0">
                         <div id="log-empty-state" class="flex items-center justify-center h-full text-slate-700">日志为空</div>
                     </div>
                 </section>
             </div>
         </div>
     </div>
+    <footer class="text-center p-4 text-slate-500 text-sm">
+        <p>
+            <a href="https://github.com/JinBiLianShao/NetCmdRegister" target="_blank" class="font-medium hover:text-slate-700 transition-colors">GitHub 开源地址</a>
+            <span class="mx-2">·</span>
+            <a href="mailto:2013182991@qq.com" class="font-medium hover:text-slate-700 transition-colors">联系作者</a>
+        </p>
+    </footer>
     <script src="renderer.js"></script>
 </body>
 </html>

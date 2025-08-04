@@ -4,7 +4,7 @@
  * * @file 渲染进程主脚本
  * @module renderer
  * @author jinbilianshao
- * @version 1.5.0
+ * @version 1.7.0
  * @license MIT
  */
 
@@ -15,7 +15,6 @@ let isScheduledSending = false;
 let scheduledSendTimer = null;
 
 // --- DOM 元素获取 ---
-// 命令管理
 const commandNameInput = document.getElementById('command-name');
 const commandPayloadTextarea = document.getElementById('command-payload');
 const addCommandBtn = document.getElementById('add-command-btn');
@@ -44,7 +43,7 @@ const scheduledSendBtnText = document.getElementById('scheduled-send-btn-text');
 const playIcon = toggleScheduledSendBtn.querySelector('.play-icon');
 const stopIcon = toggleScheduledSendBtn.querySelector('.stop-icon');
 const intervalWarning = document.getElementById('interval-warning');
-// (新增) 页签相关
+// 页签相关
 const tabListBtn = document.getElementById('tab-list-btn');
 const tabAddBtn = document.getElementById('tab-add-btn');
 const tabPanelList = document.getElementById('tab-panel-list');
@@ -54,11 +53,52 @@ const tabPanelAdd = document.getElementById('tab-panel-add');
 // --- 辅助函数 ---
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * (新) 解析 NetAssist .cfg 文件格式的命令
+ * @param {string} cfgData - 从 .cfg 文件读取的原始文本数据
+ * @returns {Array<object>} 解析后的命令对象数组
+ */
+const parseCfgCommands = (cfgData) => {
+    const parsedCmds = [];
+    const lines = cfgData.split(/\r?\n/);
+    let inBatchSendSection = false;
+
+    lines.forEach(line => {
+        const trimmedLine = line.trim();
+
+        if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
+            inBatchSendSection = (trimmedLine.toUpperCase() === '[BATCHSEND]');
+            return;
+        }
+
+        if (inBatchSendSection && trimmedLine) {
+            const parts = trimmedLine.split('=');
+            if (parts.length >= 2) {
+                const valuePart = parts.slice(1).join('=');
+                const fields = valuePart.split('|');
+                
+                // NetAssist格式: ...|命令名称|命令内容
+                if (fields.length >= 5) {
+                    const name = fields[3].trim();
+                    const payload = fields[4].trim();
+                    if (name && payload) {
+                        parsedCmds.push({ name, payload });
+                    }
+                }
+            }
+        }
+    });
+
+    return parsedCmds;
+};
+
+
 // --- UI 渲染和数据管理 ---
 
 const addLog = (message, type = 'info') => {
+    const logEmptyState = document.getElementById('log-empty-state');
     if(logEmptyState) {
-        logEmptyState.remove();
+        logEmptyState.style.display = 'none';
     }
     const now = new Date().toLocaleTimeString();
     const logEntry = document.createElement('div');
@@ -174,7 +214,6 @@ const updateScheduledSendUI = () => {
     }
 };
 
-// (新增) 页签切换逻辑
 const switchTab = (tabName) => {
     if (tabName === 'add') {
         tabPanelAdd.classList.remove('hidden');
@@ -213,7 +252,7 @@ const handleAddCommand = () => {
     renderRegisteredCommands();
     selectAllCheckbox.checked = false;
     handleSelectAll();
-    switchTab('list'); // (修改) 操作完成后自动切换回列表
+    switchTab('list');
 };
 
 const handleSendSelectedCommands = async () => {
@@ -259,7 +298,7 @@ const handleRegisteredListActions = (event) => {
         commandPayloadTextarea.value = cmdToEdit.payload;
         addCommandBtn.querySelector('span').textContent = `更新 "${cmdToEdit.name}"`;
         addLog(`正在编辑命令 "${cmdToEdit.name}"。`);
-        switchTab('add'); // (修改) 切换到编辑页签
+        switchTab('add');
         commandNameInput.focus();
     } else if (target.classList.contains('command-checkbox')) {
         updateSelectAllCheckboxState();
@@ -289,14 +328,24 @@ const handleImportCommands = async () => {
     const result = await window.electronAPI.importCommands();
     if (result.success) {
         try {
-            const importedCommands = JSON.parse(result.data);
-            if (Array.isArray(importedCommands)) {
+            let importedCommands = [];
+            const filePath = result.filePath.toLowerCase();
+            
+            if (filePath.endsWith('.json')) {
+                importedCommands = JSON.parse(result.data);
+            } else if (filePath.endsWith('.cfg')) {
+                importedCommands = parseCfgCommands(result.data);
+            } else {
+                 throw new Error(`不支持的文件类型: ${result.filePath}`);
+            }
+
+            if (Array.isArray(importedCommands) && importedCommands.every(cmd => typeof cmd === 'object' && 'name' in cmd && 'payload' in cmd)) {
                 commands = importedCommands;
                 saveCommands();
                 renderRegisteredCommands();
                 addLog(`成功导入 ${commands.length} 条命令。`);
             } else {
-                throw new Error('配置文件格式错误，不是有效的命令数组。');
+                throw new Error('配置文件格式错误或内容为空。');
             }
         } catch (e) {
             addLog(`导入失败: ${e.message}`, 'error');
@@ -355,7 +404,7 @@ const handleToggleScheduledSend = () => {
         addLog('定时发送已停止。', 'info');
     } else {
         const interval = parseInt(sendIntervalInput.value, 10);
-        if (isNaN(interval) || interval < 1) { // 允许最小1ms
+        if (isNaN(interval) || interval < 1) {
             addLog('发送间隔无效，必须是大于等于1的数字(毫秒)。', 'error');
             return;
         }
@@ -386,7 +435,13 @@ const handleIntervalChange = (event) => {
 addCommandBtn.addEventListener('click', handleAddCommand);
 registeredCommandsList.addEventListener('click', handleRegisteredListActions);
 clearLogBtn.addEventListener('click', () => {
-    logContainer.innerHTML = `<div id="log-empty-state" class="flex items-center justify-center h-full text-slate-500">日志为空</div>`;
+    const logEmptyState = document.getElementById('log-empty-state');
+    logContainer.innerHTML = '';
+    const emptyStateDiv = document.createElement('div');
+    emptyStateDiv.id = 'log-empty-state';
+    emptyStateDiv.className = 'flex items-center justify-center h-full text-slate-500';
+    emptyStateDiv.textContent = '日志为空';
+    logContainer.appendChild(emptyStateDiv);
     addLog('日志已清空。');
 });
 toggleUdpBtn.addEventListener('click', handleToggleUdpService);

@@ -33,7 +33,7 @@ const createWindow = () => {
     // 创建浏览器窗口实例
     const win = new BrowserWindow({
         width: 1200,    // 窗口初始宽度 (适当加宽以容纳新按钮)
-        height: 1050,    // 窗口初始高度
+        height: 950,    // 窗口初始高度
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'), // 预加载脚本路径
             contextIsolation: true // 启用上下文隔离以增强安全性
@@ -195,14 +195,15 @@ const createWindow = () => {
     ipcMain.handle('import-commands', async () => {
         const { canceled, filePaths } = await dialog.showOpenDialog({
             title: '导入命令配置',
-            filters: [{ name: 'JSON Files', extensions: ['json'] }],
+            filters: [{ name: '配置', extensions: ['json', 'cfg'] }],
             properties: ['openFile']
         });
 
         if (!canceled && filePaths.length > 0) {
             try {
-                const data = await fs.readFile(filePaths[0], 'utf-8');
-                return { success: true, data };
+                const filePath = filePaths[0];
+                const data = await fs.readFile(filePath, 'utf-8');
+                return { success: true, data, filePath };
             } catch (error) {
                 return { success: false, error: error.message };
             }
