@@ -42,6 +42,7 @@ const tabListBtn = document.getElementById('tab-list-btn');
 const tabAddBtn = document.getElementById('tab-add-btn');
 const tabPanelList = document.getElementById('tab-panel-list');
 const tabPanelAdd = document.getElementById('tab-panel-add');
+const deleteSelectedBtn = document.getElementById('delete-selected-btn');
 
 // --- 工具函数 ---
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -448,6 +449,23 @@ toggleScheduledSendBtn.addEventListener('click', handleToggleScheduledSend);
 sendIntervalInput.addEventListener('input', handleIntervalChange);
 tabListBtn.addEventListener('click', () => switchTab('list'));
 tabAddBtn.addEventListener('click', () => switchTab('add'));
+deleteSelectedBtn.addEventListener('click', () => {
+    const checked = document.querySelectorAll('.command-checkbox:checked');
+    if (checked.length === 0) {
+        addLog('没有选中任何命令，无法删除。', 'error');
+        return;
+    }
+
+    if (!confirm(`确定要删除选中的 ${checked.length} 条命令吗？`)) return;
+
+    const indexes = Array.from(checked).map(cb => parseInt(cb.dataset.index, 10)).sort((a,b) => b - a);
+    indexes.forEach(idx => commands.splice(idx, 1));
+
+    addLog(`已删除 ${indexes.length} 条命令。`, 'sent');
+    saveCommands();
+    renderRegisteredCommands();
+    selectAllCheckbox.checked = false;
+});
 
 // --- 主进程事件监听 ---
 window.electronAPI.onLogMessage((msg, type) => addLog(msg, type));
