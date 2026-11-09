@@ -52,12 +52,30 @@ jobs:
       - name: 安装 rpm 打包工具
         run: sudo apt-get update && sudo apt-get install -y rpm
 
+      - name: 缓存 Electron 二进制
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.electron-cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: 安装依赖
         run: npm ci --ignore-scripts=false
+        env:
+          ELECTRON_GET_USE_PROXY: 0
+          ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
 
-      - name: 确认 Electron 二进制就位
+      - name: 确保 Electron 二进制就位
         run: |
-          test -x node_modules/electron/dist/electron || { echo "Electron 二进制缺失"; exit 1; }
+          # npm ci 的 postinstall 偶尔会因网络问题静默失败，这里兜底重试
+          if [ ! -x node_modules/electron/dist/electron ]; then
+            echo "Electron 二进制缺失，重试安装"
+            for i in 1 2 3; do
+              echo "第 $i 次尝试"
+              (cd node_modules/electron && node install.js) && break
+              sleep 10
+            done
+          fi
+          test -x node_modules/electron/dist/electron || { echo "Electron 二进制安装失败"; exit 1; }
           node_modules/electron/dist/electron --version
 
       - name: 打包 AppImage / deb / rpm
@@ -98,14 +116,35 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: 缓存 Electron 二进制
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.electron-cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: 安装依赖
         run: npm ci --ignore-scripts=false
+        env:
+          ELECTRON_GET_USE_PROXY: 0
+          ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
 
-      - name: 确认 Electron 二进制就位
+      - name: 确保 Electron 二进制就位
         shell: pwsh
         run: |
           if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
-            Write-Error "Electron 二进制缺失"
+            Write-Host "Electron 二进制缺失，重试安装"
+            foreach ($i in 1..3) {
+              Write-Host "第 $i 次尝试"
+              Push-Location node_modules/electron
+              node install.js
+              $ok = $LASTEXITCODE -eq 0
+              Pop-Location
+              if ($ok -and (Test-Path "node_modules/electron/dist/electron.exe")) { break }
+              Start-Sleep -Seconds 10
+            }
+          }
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
+            Write-Error "Electron 二进制安装失败"
             exit 1
           }
 
