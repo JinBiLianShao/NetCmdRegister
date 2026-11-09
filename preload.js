@@ -22,6 +22,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     sendUDPCommand: (command) => ipcRenderer.invoke('send-udp-command', command),
 
     /**
+     * 通过 TCP 发送命令到主进程
+     */
+    sendTCPCommand: (command) => ipcRenderer.invoke('send-tcp-command', command),
+
+    /**
      * 启动 UDP 服务
      */
     startUDPServer: (port) => ipcRenderer.invoke('start-udp-server', port),
@@ -60,5 +65,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
         const handler = (_event, status) => callback(status);
         ipcRenderer.on('server-status', handler);
         return () => ipcRenderer.removeListener('server-status', handler);
+    },
+
+    /**
+     * 监听原始接收数据（用于按不同编码解码显示）
+     */
+    onRecvMessage: (callback) => {
+        const handler = (_event, data) => callback(data);
+        ipcRenderer.on('recv-message', handler);
+        return () => ipcRenderer.removeListener('recv-message', handler);
     }
 });

@@ -16,11 +16,25 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const dgram = require('dgram'); // 用于 UDP 通信的 Node.js 模块
+const net = require('net'); // 用于 TCP 通信的 Node.js 模块
 const fs = require('fs/promises'); // 用于文件读写
 
 // UDP 相关变量
 let udpServer = null; // 存储 UDP 服务端实例
 let udpClient = null; // 存储 UDP 客户端实例
+// TCP 客户端缓存（按 host:port 复用连接，避免每次发送重复握手）
+const tcpClients = new Map();
+
+/**
+ * 校验 payload 是否为合法的十六进制字节序列（允许空格分隔，必须为偶数个 hex 字符）
+ * @param {string} payload
+ * @returns {boolean}
+ */
+const isValidHexPayload = (payload) => {
+    if (typeof payload !== 'string') return false;
+    const hex = payload.replace(/\s/g, '');
+    return hex.length > 0 && hex.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(hex);
+};
 
 /**
  * 创建应用主窗口
@@ -39,6 +53,12 @@ const createWindow = () => {
             contextIsolation: true // 启用上下文隔离以增强安全性
         }
     });
+
+    // 校验 IPC 调用是否来自本应用的渲染进程，防止外部脚本滥用
+    const isTrustedSender = (event) => {
+        const frameUrl = event.senderFrame && event.senderFrame.url;
+        return typeof frameUrl === 'string' && frameUrl.startsWith('file://');
+    };
 
     // 加载应用的 HTML 文件
     win.loadFile('index.html');
@@ -70,15 +90,23 @@ const createWindow = () => {
         udpServer = dgram.createSocket('udp4');
 
         udpServer.on('error', (err) => {
-            win.webContents.send('log-message', 
-                `UDP服务错误: ${err.stack}`, 'error');
+            if (err.code === 'EADDRINUSE') {
+                win.webContents.send('log-message',
+                    `端口 ${port} 已被占用，无法启动 UDP 服务。请更换端口或先关闭占用该端口的程序。`, 'error');
+            } else {
+                win.webContents.send('log-message',
+                    `UDP服务错误: ${err.stack}`, 'error');
+            }
             stopUDPServer();
         });
 
         udpServer.on('message', (msg, rinfo) => {
-            const hexString = msg.toString('hex')
-                .match(/.{1,2}/g)
-                .join(' ');
+            const rawHex = msg.toString('hex');
+            const hexString = rawHex.match(/.{1,2}/g)?.join(' ') || '';
+            win.webContents.send('recv-message', {
+                address: `${rinfo.address}:${rinfo.port}`,
+                rawHex
+            });
             win.webContents.send('log-message', 
                 `从 ${rinfo.address}:${rinfo.port} 收到回执: ${hexString}`, 'recv');
         });
@@ -122,15 +150,20 @@ const createWindow = () => {
     // --- IPC 通信处理 ---
 
     ipcMain.handle('start-udp-server', (event, port) => {
+        if (!isTrustedSender(event)) return;
         startUDPServer(port);
     });
 
-    ipcMain.handle('stop-udp-server', () => {
+    ipcMain.handle('stop-udp-server', (event) => {
+        if (!isTrustedSender(event)) return;
         stopUDPServer();
     });
 
     ipcMain.handle('send-udp-command', async (event, command) => {
         return new Promise((resolve, reject) => {
+            if (!isTrustedSender(event)) {
+                return reject(new Error('Untrusted IPC sender.'));
+            }
             if (!udpClient) {
                 win.webContents.send('log-message', 
                     'UDP客户端未初始化，无法发送命令。', 'error');
@@ -138,6 +171,11 @@ const createWindow = () => {
             }
 
             try {
+                if (!isValidHexPayload(command.payload)) {
+                    const err = new Error(`命令内容不是合法的十六进制: ${command.payload}`);
+                    win.webContents.send('log-message', err.message, 'error');
+                    return reject(err);
+                }
                 const message = Buffer.from(
                     command.payload.replace(/\s/g, ''), 
                     'hex'
@@ -167,11 +205,75 @@ const createWindow = () => {
         });
     });
 
+    /**
+     * 通过 TCP 发送命令（复用已建立的连接，按 host:port 缓存）
+     */
+    ipcMain.handle('send-tcp-command', async (event, command) => {
+        if (!isTrustedSender(event)) throw new Error('Untrusted IPC sender.');
+        if (!isValidHexPayload(command.payload)) {
+            const err = new Error(`命令内容不是合法的十六进制: ${command.payload}`);
+            win.webContents.send('log-message', err.message, 'error');
+            throw err;
+        }
+        const message = Buffer.from(command.payload.replace(/\s/g, ''), 'hex');
+        const key = `${command.ip}:${command.port}`;
+        let client = tcpClients.get(key);
+
+        return new Promise((resolve, reject) => {
+            const sendOnSocket = (socket) => {
+                socket.write(message, (err) => {
+                    if (err) {
+                        win.webContents.send('log-message',
+                            `发送 TCP 命令到 ${key} 失败: ${err.message}`, 'error');
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
+            };
+
+            if (client && !client.destroyed) {
+                return sendOnSocket(client);
+            }
+
+            // 建立新连接
+            client = net.createConnection({ host: command.ip, port: command.port });
+            tcpClients.set(key, client);
+
+            const onError = (err) => {
+                tcpClients.delete(key);
+                win.webContents.send('log-message',
+                    `TCP 连接 ${key} 失败: ${err.message}`, 'error');
+                reject(err);
+            };
+            const onTimeout = () => {
+                tcpClients.delete(key);
+                win.webContents.send('log-message',
+                    `TCP 连接 ${key} 超时。`, 'error');
+                reject(new Error('TCP connection timeout.'));
+            };
+
+            client.setTimeout(5000, onTimeout);
+            client.once('error', onError);
+            client.once('connect', () => {
+                client.removeListener('error', onError);
+                client.on('error', (err) => {
+                    tcpClients.delete(key);
+                    win.webContents.send('log-message',
+                        `TCP 连接 ${key} 错误: ${err.message}`, 'error');
+                });
+                client.on('close', () => tcpClients.delete(key));
+                sendOnSocket(client);
+            });
+        });
+    });
+
     // --- 文件处理 IPC ---
     /**
      * 处理导出命令的请求
      */
     ipcMain.handle('export-commands', async (event, commandsData) => {
+        if (!isTrustedSender(event)) return { success: false, error: '非法调用来源' };
         const { canceled, filePath } = await dialog.showSaveDialog({
             title: '导出命令配置',
             defaultPath: 'net-cmd-config.json',
@@ -192,7 +294,8 @@ const createWindow = () => {
     /**
      * 处理导入命令的请求
      */
-    ipcMain.handle('import-commands', async () => {
+    ipcMain.handle('import-commands', async (event) => {
+        if (!isTrustedSender(event)) return { success: false, error: '非法调用来源' };
         const { canceled, filePaths } = await dialog.showOpenDialog({
             title: '导入命令配置',
             filters: [{ name: '配置', extensions: ['json', 'cfg'] }],

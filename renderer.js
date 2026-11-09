@@ -13,6 +13,7 @@ let commands = [];
 let isServerRunning = false;
 let isScheduledSending = false;
 let scheduledSendTimer = null;
+let isScheduledExecuting = false; // 定时发送防重入互斥锁
 
 // --- DOM 元素 ---
 const commandNameInput = document.getElementById('command-name');
@@ -24,7 +25,10 @@ const importCommandsBtn = document.getElementById('import-commands-btn');
 const exportCommandsBtn = document.getElementById('export-commands-btn');
 const destIpInput = document.getElementById('dest-ip');
 const destPortInput = document.getElementById('dest-port');
+const protocolSelect = document.getElementById('protocol-select');
 const sendSelectedBtn = document.getElementById('send-selected-btn');
+const commandSearchInput = document.getElementById('command-search-input');
+const decodeSelect = document.getElementById('decode-select');
 const localPortInput = document.getElementById('local-port');
 const udpStatusIndicator = document.getElementById('udp-status-indicator');
 const udpStatusText = document.getElementById('udp-status-text');
@@ -47,65 +51,26 @@ const deleteSelectedBtn = document.getElementById('delete-selected-btn');
 // --- 工具函数 ---
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// 纯函数工具从 utils.js 引入（window.NetCmdUtils，由 index.html 先加载）
+const { escapeHtml, isValidHexPayload, normalizeCommands, decodeHex, parseCfgCommands } = window.NetCmdUtils;
+
 /**
- * 解析 NetAssist 软件的 .cfg 文件
- * 支持 [BATCHSEND] 和 [SHORTCUT] 区域
- * @param {string} cfgData - 文件内容
- * @returns {Array<{name: string, payload: string}>}
+ * 根据当前选中的协议发送命令（UDP 或 TCP）
+ * @param {{ip: string, port: number, payload: string}} command
+ * @returns {Promise<void>}
  */
-const parseCfgCommands = (cfgData) => {
-    const parsedCmds = [];
-    const lines = cfgData.split(/\r?\n/);
-    let inBatchSendSection = false;
-    let inShortcutSection = false;
-
-    lines.forEach(line => {
-        const trimmed = line.trim();
-        if (!trimmed) return;
-
-        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-            const section = trimmed.toUpperCase();
-            inBatchSendSection = (section === '[BATCHSEND]');
-            inShortcutSection = (section === '[SHORTCUT]');
-            return;
-        }
-
-        if (inBatchSendSection) {
-            const parts = trimmed.split('=');
-            if (parts.length >= 2) {
-                const valuePart = parts.slice(1).join('=');
-                const fields = valuePart.split('|');
-                if (fields.length >= 5) {
-                    const name = fields[3].trim();
-                    const payload = fields[4].trim();
-                    if (name && payload) {
-                        parsedCmds.push({ name, payload });
-                    }
-                }
-            }
-        }
-
-        if (inShortcutSection) {
-            const parts = trimmed.split('=');
-            if (parts.length >= 2) {
-                const name = parts[0].trim();
-                const valuePart = parts.slice(1).join('=');
-                const fields = valuePart.split('|');
-                if (fields.length >= 4) {
-                    const rawPayload = fields[3].trim();
-                    const payload = rawPayload.match(/.{1,2}/g)?.join(' ')?.toUpperCase() || '';
-                    if (name && payload) {
-                        parsedCmds.push({ name, payload });
-                    }
-                }
-            }
-        }
-    });
-
-    return parsedCmds;
+const sendCommand = (command) => {
+    const proto = protocolSelect ? protocolSelect.value : 'udp';
+    return proto === 'tcp'
+        ? window.electronAPI.sendTCPCommand(command)
+        : window.electronAPI.sendUDPCommand(command);
 };
 
+// parseCfgCommands 已移至 utils.js（window.NetCmdUtils.parseCfgCommands）
+
 // --- 日志处理 ---
+const MAX_LOG_ENTRIES = 800; // 日志环形缓冲上限，超出后移除最早的条目，防止 DOM 无限增长
+
 const addLog = (message, type = 'info') => {
     if (logEmptyState) logEmptyState.style.display = 'none';
     const now = new Date().toLocaleTimeString();
@@ -114,26 +79,40 @@ const addLog = (message, type = 'info') => {
     if (type === 'sent') colorClass = 'text-green-400';
     else if (type === 'error') colorClass = 'text-red-400';
     else if (type === 'recv') colorClass = 'text-blue-400';
-    logEntry.innerHTML = `<span class="text-slate-500">[${now}]</span> <span class="${colorClass}">${message}</span>`;
+    const safeMsg = escapeHtml(message);
+    logEntry.innerHTML = `<span class="text-slate-500">[${now}]</span> <span class="${colorClass}">${safeMsg}</span>`;
     logContainer.appendChild(logEntry);
+    // 环形缓冲：超出上限时移除最早的日志节点
+    while (logContainer.children.length > MAX_LOG_ENTRIES + 1) {
+        logContainer.removeChild(logContainer.children[0]);
+    }
     logContainer.scrollTop = logContainer.scrollHeight; // 自动滚动到底部
 };
 
 // --- 命令列表渲染 ---
 const renderRegisteredCommands = () => {
     registeredCommandsList.innerHTML = '';
+    const keyword = commandSearchInput ? commandSearchInput.value.trim().toLowerCase() : '';
+    const filtered = keyword
+        ? commands.map((cmd, i) => ({ cmd, i })).filter(({ cmd }) =>
+            cmd.name.toLowerCase().includes(keyword) || cmd.payload.toLowerCase().includes(keyword))
+        : commands.map((cmd, i) => ({ cmd, i }));
     if (commands.length === 0) {
         registeredCommandsList.innerHTML = `<li class="text-slate-400 text-center p-4">暂无命令，请在"添加/编辑"页签中新增。</li>`;
+    } else if (filtered.length === 0) {
+        registeredCommandsList.innerHTML = `<li class="text-slate-400 text-center p-4">没有匹配 "${escapeHtml(keyword)}" 的命令。</li>`;
     } else {
-        commands.forEach((cmd, index) => {
+        filtered.forEach(({ cmd, index }) => {
             const li = document.createElement('li');
             li.className = 'flex justify-between items-center bg-slate-100 p-2 rounded-md shadow-sm text-sm hover:bg-slate-200 transition-colors';
+            const safeName = escapeHtml(cmd.name);
+            const safePayload = escapeHtml(cmd.payload);
             li.innerHTML = `
                 <div class="flex items-center flex-grow overflow-hidden">
                     <input type="checkbox" class="command-checkbox mx-2 h-4 w-4 rounded border-slate-300 text-slate-600 focus:ring-slate-500 flex-shrink-0" data-index="${index}">
                     <div class="flex-grow overflow-hidden">
-                        <span class="font-bold text-slate-800 truncate block">${cmd.name}</span>
-                        <p class="text-slate-500 truncate font-mono text-xs">${cmd.payload}</p>
+                        <span class="font-bold text-slate-800 truncate block">${safeName}</span>
+                        <p class="text-slate-500 truncate font-mono text-xs">${safePayload}</p>
                     </div>
                 </div>
                 <div class="flex space-x-2 ml-2 flex-shrink-0">
@@ -258,17 +237,24 @@ const handleSendSelectedCommands = async () => {
         addLog('请填写有效的目标IP和端口！', 'error');
         return;
     }
-    for (const cb of checked) {
-        const cmd = commands[parseInt(cb.dataset.index, 10)];
-        if (cmd) {
-            try {
-                await window.electronAPI.sendUDPCommand({ ip: destIp, port: destPort, payload: cmd.payload });
-                addLog(`成功发送: "${cmd.name}" | ${cmd.payload}`, 'sent');
-                await sleep(50);
-            } catch {}
+    const cmds = Array.from(checked)
+        .map(cb => commands[parseInt(cb.dataset.index, 10)])
+        .filter(Boolean);
+    const results = await Promise.all(cmds.map(cmd =>
+        sendCommand({ ip: destIp, port: destPort, payload: cmd.payload })
+            .then(() => ({ cmd, ok: true }))
+            .catch(() => ({ cmd, ok: false }))
+    ));
+    let okCount = 0;
+    for (const { cmd, ok } of results) {
+        if (ok) {
+            okCount++;
+            addLog(`成功发送: "${cmd.name}" | ${cmd.payload}`, 'sent');
+        } else {
+            addLog(`发送失败: "${cmd.name}"`, 'error');
         }
     }
-    addLog('批量发送完成。');
+    addLog(`批量发送完成: 成功 ${okCount}/${cmds.length} 条。`);
 };
 
 // 列表操作（编辑/删除/发送）
@@ -296,7 +282,7 @@ const handleRegisteredListActions = (e) => {
             addLog('请填写有效的目标IP和端口！', 'error');
             return;
         }
-        window.electronAPI.sendUDPCommand({ ip: destIp, port: destPort, payload: cmd.payload })
+        sendCommand({ ip: destIp, port: destPort, payload: cmd.payload })
             .then(() => addLog(`发送成功: "${cmd.name}"`, 'sent'))
             .catch(() => addLog(`发送失败: "${cmd.name}"`, 'error'));
     } else if (target.classList.contains('command-checkbox')) {
@@ -328,20 +314,49 @@ const handleSelectAll = () => {
 // 导入命令
 const handleImportCommands = async () => {
     const result = await window.electronAPI.importCommands();
-    if (result.success) {
-        try {
-            const imported = result.filePath.toLowerCase().endsWith('.json')
-                ? JSON.parse(result.data)
-                : parseCfgCommands(result.data);
-            if (Array.isArray(imported)) {
-                commands = imported;
-                saveCommands();
-                renderRegisteredCommands();
-                addLog(`导入 ${commands.length} 条命令。`);
-            }
-        } catch (e) {
-            addLog(`导入失败: ${e.message}`, 'error');
+    if (!result || !result.success) return;
+    try {
+        const rawImported = result.filePath.toLowerCase().endsWith('.json')
+            ? JSON.parse(result.data)
+            : parseCfgCommands(result.data);
+        if (!Array.isArray(rawImported)) {
+            addLog('导入失败: 文件内容不是有效的命令数组。', 'error');
+            return;
         }
+        const imported = normalizeCommands(rawImported);
+        if (imported.length === 0) {
+            addLog('导入失败: 没有解析到任何合法命令（检查字段与十六进制格式）。', 'error');
+            return;
+        }
+        const skipped = rawImported.length - imported.length;
+
+        // 询问合并还是覆盖（当前已有命令时）
+        let mode = 'overwrite';
+        if (commands.length > 0) {
+            mode = confirm('检测到已有命令。\n\n点击「确定」= 合并导入（按名称去重）\n点击「取消」= 覆盖全部命令')
+                ? 'merge'
+                : 'overwrite';
+        }
+
+        if (mode === 'merge') {
+            const nameSet = new Set(commands.map(c => c.name));
+            let mergedCount = 0;
+            for (const cmd of imported) {
+                if (!nameSet.has(cmd.name)) {
+                    commands.push(cmd);
+                    nameSet.add(cmd.name);
+                    mergedCount++;
+                }
+            }
+            addLog(`合并导入完成: 新增 ${mergedCount} 条，跳过重名 ${imported.length - mergedCount} 条${skipped ? `，忽略非法 ${skipped} 条` : ''}。`);
+        } else {
+            commands = imported;
+            addLog(`覆盖导入完成: 共 ${commands.length} 条命令${skipped ? `，忽略非法 ${skipped} 条` : ''}。`);
+        }
+        saveCommands();
+        renderRegisteredCommands();
+    } catch (e) {
+        addLog(`导入失败: ${e.message}`, 'error');
     }
 };
 
@@ -354,6 +369,17 @@ const handleExportCommands = async () => {
 
 // 定时发送
 const executeScheduledSend = async () => {
+    // 防重入：上一次执行未完成时跳过本次，避免并发重叠发送
+    if (isScheduledExecuting) return;
+    isScheduledExecuting = true;
+    try {
+        await executeScheduledSendCore();
+    } finally {
+        isScheduledExecuting = false;
+    }
+};
+
+const executeScheduledSendCore = async () => {
     const checked = document.querySelectorAll('.command-checkbox:checked');
     if (checked.length === 0) {
         addLog('没有选中任何命令，定时发送已停止。', 'error');
@@ -370,7 +396,7 @@ const executeScheduledSend = async () => {
     for (const cb of checked) {
         const cmd = commands[parseInt(cb.dataset.index, 10)];
         try {
-            await window.electronAPI.sendUDPCommand({ ip: destIp, port: destPort, payload: cmd.payload });
+            await sendCommand({ ip: destIp, port: destPort, payload: cmd.payload });
             addLog(`(定时)发送: "${cmd.name}"`, 'sent');
             await sleep(50);
         } catch {}
@@ -447,6 +473,10 @@ importCommandsBtn.addEventListener('click', handleImportCommands);
 exportCommandsBtn.addEventListener('click', handleExportCommands);
 toggleScheduledSendBtn.addEventListener('click', handleToggleScheduledSend);
 sendIntervalInput.addEventListener('input', handleIntervalChange);
+commandSearchInput.addEventListener('input', renderRegisteredCommands);
+if (decodeSelect) {
+    decodeSelect.addEventListener('change', () => addLog(`已切换接收数据解码方式: ${decodeSelect.value.toUpperCase()}`));
+}
 tabListBtn.addEventListener('click', () => switchTab('list'));
 tabAddBtn.addEventListener('click', () => switchTab('add'));
 deleteSelectedBtn.addEventListener('click', () => {
@@ -470,6 +500,11 @@ deleteSelectedBtn.addEventListener('click', () => {
 // --- 主进程事件监听 ---
 window.electronAPI.onLogMessage((msg, type) => addLog(msg, type));
 window.electronAPI.onServerStatus((status) => updateServerStatusUI(status.running, status.port));
+window.electronAPI.onRecvMessage((data) => {
+    const mode = decodeSelect ? decodeSelect.value : 'hex';
+    const decoded = decodeHex(data.rawHex, mode);
+    addLog(`从 ${data.address} 收到 (${mode.toUpperCase()}): ${decoded}`, 'recv');
+});
 
 // --- 初始化 ---
 window.addEventListener('load', () => {

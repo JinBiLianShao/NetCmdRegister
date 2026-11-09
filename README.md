@@ -36,7 +36,7 @@
 1.  **克隆仓库**
 
     ```bash
-    git clone https://github.com/your-username/NetCmdRegister.git
+    git clone https://github.com/JinBiLianShao/NetCmdRegister.git
     cd NetCmdRegister
     ```
 
