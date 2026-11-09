@@ -1,0 +1,169 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # 前置关卡：语法 + lint + 单元测试，任何一项失败都不进入打包
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci --ignore-scripts=false
+
+      - name: 语法检查
+        run: |
+          for f in main.js preload.js renderer.js utils.js utils.test.js; do
+            node --check "$f" && echo "OK $f"
+          done
+
+      - name: ESLint
+        run: npx eslint main.js preload.js renderer.js utils.js
+
+      - name: 单元测试
+        run: npx jest
+
+  build-linux:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装 rpm 打包工具
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - name: 安装依赖
+        run: npm ci --ignore-scripts=false
+
+      - name: 确认 Electron 二进制就位
+        run: |
+          test -x node_modules/electron/dist/electron || { echo "Electron 二进制缺失"; exit 1; }
+          node_modules/electron/dist/electron --version
+
+      - name: 打包 AppImage / deb / rpm
+        run: npx electron-builder --linux AppImage deb rpm
+
+      - name: 校验产物完整性
+        run: |
+          ls -lh app_file/
+          for f in app_file/*.AppImage app_file/*.deb app_file/*.rpm; do
+            [ -f "$f" ] || { echo "缺少产物: $f"; exit 1; }
+            SIZE=$(stat -c%s "$f")
+            if [ "$SIZE" -lt 10485760 ]; then
+              echo "产物异常偏小 ($SIZE 字节): $f"
+              exit 1
+            fi
+          done
+          echo "全部 Linux 产物校验通过"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: |
+            app_file/*.AppImage
+            app_file/*.deb
+            app_file/*.rpm
+          if-no-files-found: error
+
+  build-windows:
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci --ignore-scripts=false
+
+      - name: 确认 Electron 二进制就位
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
+            Write-Error "Electron 二进制缺失"
+            exit 1
+          }
+
+      - name: 打包 Windows 安装包
+        run: npx electron-builder --win
+
+      - name: 校验产物完整性
+        shell: pwsh
+        run: |
+          Get-ChildItem app_file/*.exe | Format-Table Name, Length
+          $exe = Get-ChildItem app_file/*.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "未生成 exe"; exit 1 }
+          if ($exe.Length -lt 10485760) {
+            Write-Error "产物异常偏小 ($($exe.Length) 字节): $($exe.Name)"
+            exit 1
+          }
+          Write-Host "Windows 产物校验通过"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: app_file/*.exe
+          if-no-files-found: error
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 下载全部构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 确定发布标签
+        id: tag
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+            TAG="v${VERSION}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "发布标签: ${TAG}"
+
+      - name: 列出待发布文件
+        run: ls -lh dist
+
+      - name: 创建 / 更新 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: NetCmdRegister ${{ steps.tag.outputs.tag }}
+          files: dist/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true

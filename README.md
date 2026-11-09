@@ -15,11 +15,16 @@
 ## 功能特性
 
   - **命令注册与管理**：轻松添加、编辑和删除带有自定义名称和内容的命令。
-  - **UDP 命令发送**：一键发送已注册的命令到指定的目标 IP 和端口。
+  - **UDP / TCP 命令发送**：一键发送已注册的命令到指定的目标 IP 和端口，协议可切换；TCP 连接按目标地址复用。
   - **本地 UDP 监听**：启动一个本地服务，监听指定端口的 UDP 响应，并将接收到的数据实时显示在日志中。
-  - **十六进制支持**：命令内容支持十六进制格式，方便调试底层协议。
-  - **日志记录**：详细记录所有命令发送、接收和应用状态信息，便于追溯和排查问题。
+  - **多编码解码视图**：接收到的数据可在 HEX / ASCII / UTF-8 之间切换查看。
+  - **命令搜索**：按名称或内容实时过滤命令列表。
+  - **十六进制支持**：命令内容支持十六进制格式，发送前会校验格式合法性。
+  - **批量与定时发送**：支持多选并发发送，以及可配置间隔的定时发送。
+  - **导入导出**：支持 JSON 配置导入导出，兼容 NetAssist 的 .cfg 文件；导入时可选择合并或覆盖。
+  - **日志记录**：详细记录所有命令发送、接收和应用状态信息；日志上限 800 条，自动滚动。
   - **持久化存储**：命令列表自动保存在本地，无需担心应用重启后数据丢失。
+  - **安全加固**：所有页面文本做 HTML 转义防注入，IPC 调用校验来源。
   - **跨平台支持**：得益于 Electron，该应用可以在 Windows、macOS 和 Linux 上运行。
 
 ## 技术栈
@@ -58,17 +63,57 @@
 
 暂无
 
+## 测试
+
+```bash
+npm test          # 运行单元测试（Jest）
+npm run lint      # 运行 ESLint 检查
+```
+
+单元测试覆盖纯函数逻辑：十六进制校验、HTML 转义、.cfg 解析、命令规范化、多编码解码。
+
+## 打包
+
+```bash
+npm run build:linux   # 打包 Linux（AppImage / deb / rpm）
+npm run build:win     # 打包 Windows（NSIS 安装包，含 32/64 位）
+```
+
+> 注意：Electron 应用通常需要在目标平台上打包。Windows 安装包建议在 Windows 或 CI 上构建。
+
+## 自动化发布
+
+仓库已配置 GitHub Actions 工作流（`.github/workflows/release.yml`），推送 `v*` 格式的标签时会自动：
+
+1. 运行语法检查、ESLint 与单元测试（任一失败即终止）
+2. 在 Linux 上打包 AppImage / deb / rpm
+3. 在 Windows 上打包 NSIS 安装包
+4. 校验产物完整性（尺寸异常则失败）
+5. 创建 GitHub Release 并上传全部产物
+
+也可以到 Actions 页面手动触发（workflow_dispatch）。
+
+```bash
+git tag v1.1.5
+git push origin v1.1.5
+```
+
 ## 项目结构
 
 ```
 NetCmdRegister/
-├── main.js         # Electron 主进程文件，处理后端逻辑和窗口管理
-├── renderer.js     # 渲染进程文件，处理UI交互和前端逻辑
-├── preload.js      # 预加载脚本，提供主进程和渲染进程之间的安全通信桥梁
-├── index.html      # 应用程序的用户界面
-├── styles.css      # 自定义样式文件
-├── package.json    # 项目配置和依赖管理
-└── README.md       # 项目说明文件 (当前文件)
+├── main.js                      # Electron 主进程：窗口管理、UDP/TCP 服务、文件 IO
+├── renderer.js                  # 渲染进程：UI 交互逻辑
+├── preload.js                   # 预加载脚本：主进程与渲染进程的安全通信桥梁
+├── utils.js                     # 纯函数工具库（浏览器 / Node 双环境）
+├── utils.test.js                # 单元测试
+├── index.html                   # 应用程序的用户界面
+├── styles.css                   # 自定义样式文件
+├── eslint.config.js             # ESLint 配置
+├── package.json                 # 项目配置和依赖管理
+├── icons/                       # Linux 打包图标
+├── .github/workflows/release.yml # 自动化打包与发布
+└── README.md                    # 项目说明文件（当前文件）
 ```
 
 ## 贡献
