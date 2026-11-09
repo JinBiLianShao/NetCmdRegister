@@ -52,31 +52,46 @@ jobs:
       - name: 安装 rpm 打包工具
         run: sudo apt-get update && sudo apt-get install -y rpm
 
-      - name: 缓存 Electron 二进制
+      - name: 缓存 Electron 下载缓存
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/.electron-cache
-          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          path: ~/.cache/electron
+          key: electron-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: 安装依赖
         run: npm ci --ignore-scripts=false
         env:
           ELECTRON_GET_USE_PROXY: 0
-          ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
 
       - name: 确保 Electron 二进制就位
         run: |
           # npm ci 的 postinstall 偶尔会因网络问题静默失败，这里兜底重试
           if [ ! -x node_modules/electron/dist/electron ]; then
-            echo "Electron 二进制缺失，重试安装"
-            for i in 1 2 3; do
-              echo "第 $i 次尝试"
-              (cd node_modules/electron && node install.js) && break
-              sleep 10
+            echo "Electron 二进制缺失，开始重试安装"
+            for i in 1 2 3 4 5; do
+              echo "===== 第 $i 次尝试 ====="
+              if (cd node_modules/electron && node install.js); then
+                if [ -x node_modules/electron/dist/electron ]; then
+                  echo "安装成功"
+                  break
+                fi
+              fi
+              echo "第 $i 次失败，等待 15 秒后重试"
+              sleep 15
             done
           fi
-          test -x node_modules/electron/dist/electron || { echo "Electron 二进制安装失败"; exit 1; }
-          node_modules/electron/dist/electron --version
+          if [ ! -x node_modules/electron/dist/electron ]; then
+            echo "Electron 二进制安装失败"
+            exit 1
+          fi
+          # 只校验文件存在与大小，不实际执行：CI runner 缺少 SUID sandbox 配置，
+          # 直接运行 Electron 会触发 setuid_sandbox_host FATAL 崩溃（与二进制是否完好无关）
+          SIZE=$(stat -c%s node_modules/electron/dist/electron)
+          echo "Electron 二进制就位，大小 $SIZE 字节"
+          if [ "$SIZE" -lt 52428800 ]; then
+            echo "Electron 二进制异常偏小，疑似下载不完整"
+            exit 1
+          fi
 
       - name: 打包 AppImage / deb / rpm
         run: npx electron-builder --linux AppImage deb rpm
@@ -116,17 +131,16 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: 缓存 Electron 二进制
+      - name: 缓存 Electron 下载缓存
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/.electron-cache
-          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          path: ~/AppData/Local/electron/Cache
+          key: electron-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: 安装依赖
         run: npm ci --ignore-scripts=false
         env:
           ELECTRON_GET_USE_PROXY: 0
-          ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
 
       - name: 确保 Electron 二进制就位
         shell: pwsh
