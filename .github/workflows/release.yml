@@ -94,7 +94,9 @@ jobs:
           fi
 
       - name: 打包 AppImage / deb / rpm
-        run: npx electron-builder --linux AppImage deb rpm
+        # --publish never：发布统一交给最后的 release job，这里只产出文件，
+        # 否则 electron-builder 在 CI 中会尝试自动发布并要求 GH_TOKEN
+        run: npx electron-builder --linux AppImage deb rpm --publish never
 
       - name: 校验产物完整性
         run: |
@@ -163,7 +165,8 @@ jobs:
           }
 
       - name: 打包 Windows 安装包
-        run: npx electron-builder --win
+        # --publish never：同上，避免 CI 中自动发布报 GH_TOKEN 缺失
+        run: npx electron-builder --win --publish never
 
       - name: 校验产物完整性
         shell: pwsh
