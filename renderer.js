@@ -52,7 +52,8 @@ const deleteSelectedBtn = document.getElementById('delete-selected-btn');
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // 纯函数工具从 utils.js 引入（window.NetCmdUtils，由 index.html 先加载）
-const { escapeHtml, isValidHexPayload, normalizeCommands, decodeHex, parseCfgCommands } = window.NetCmdUtils;
+// 注意：utils.js 在全局作用域用 function 声明了同名函数，这里不能再用 const 解构，否则重复声明报 SyntaxError
+const NCU = window.NetCmdUtils;
 
 /**
  * 根据当前选中的协议发送命令（UDP 或 TCP）
@@ -60,6 +61,9 @@ const { escapeHtml, isValidHexPayload, normalizeCommands, decodeHex, parseCfgCom
  * @returns {Promise<void>}
  */
 const sendCommand = (command) => {
+    if (!window.electronAPI) {
+        return Promise.reject(new Error('当前环境无 Electron 桥接，无法发送命令。'));
+    }
     const proto = protocolSelect ? protocolSelect.value : 'udp';
     return proto === 'tcp'
         ? window.electronAPI.sendTCPCommand(command)
@@ -79,7 +83,7 @@ const addLog = (message, type = 'info') => {
     if (type === 'sent') colorClass = 'text-green-400';
     else if (type === 'error') colorClass = 'text-red-400';
     else if (type === 'recv') colorClass = 'text-blue-400';
-    const safeMsg = escapeHtml(message);
+    const safeMsg = NCU.escapeHtml(message);
     logEntry.innerHTML = `<span class="text-slate-500">[${now}]</span> <span class="${colorClass}">${safeMsg}</span>`;
     logContainer.appendChild(logEntry);
     // 环形缓冲：超出上限时移除最早的日志节点
@@ -100,13 +104,13 @@ const renderRegisteredCommands = () => {
     if (commands.length === 0) {
         registeredCommandsList.innerHTML = `<li class="text-slate-400 text-center p-4">暂无命令，请在"添加/编辑"页签中新增。</li>`;
     } else if (filtered.length === 0) {
-        registeredCommandsList.innerHTML = `<li class="text-slate-400 text-center p-4">没有匹配 "${escapeHtml(keyword)}" 的命令。</li>`;
+        registeredCommandsList.innerHTML = `<li class="text-slate-400 text-center p-4">没有匹配 "${NCU.escapeHtml(keyword)}" 的命令。</li>`;
     } else {
-        filtered.forEach(({ cmd, index }) => {
+        filtered.forEach(({ cmd, i: index }) => {
             const li = document.createElement('li');
             li.className = 'flex justify-between items-center bg-slate-100 p-2 rounded-md shadow-sm text-sm hover:bg-slate-200 transition-colors';
-            const safeName = escapeHtml(cmd.name);
-            const safePayload = escapeHtml(cmd.payload);
+            const safeName = NCU.escapeHtml(cmd.name);
+            const safePayload = NCU.escapeHtml(cmd.payload);
             li.innerHTML = `
                 <div class="flex items-center flex-grow overflow-hidden">
                     <input type="checkbox" class="command-checkbox mx-2 h-4 w-4 rounded border-slate-300 text-slate-600 focus:ring-slate-500 flex-shrink-0" data-index="${index}">
@@ -156,7 +160,7 @@ const loadCommands = () => {
     try {
         const stored = localStorage.getItem('netCmdRegisterCommands');
         commands = stored ? JSON.parse(stored) : [];
-    } catch (e) {
+    } catch {
         commands = [];
     }
     renderRegisteredCommands();
@@ -292,6 +296,10 @@ const handleRegisteredListActions = (e) => {
 
 // UDP 服务
 const handleToggleUdpService = async () => {
+    if (!window.electronAPI) {
+        addLog('当前环境无 Electron 桥接，无法启停服务。', 'error');
+        return;
+    }
     const localPort = parseInt(localPortInput.value.trim(), 10);
     if (isNaN(localPort) || localPort < 1 || localPort > 65535) {
         addLog('本地监听端口无效！', 'error');
@@ -313,17 +321,18 @@ const handleSelectAll = () => {
 
 // 导入命令
 const handleImportCommands = async () => {
+    if (!window.electronAPI) return addLog('当前环境无 Electron 桥接，无法导入。', 'error');
     const result = await window.electronAPI.importCommands();
     if (!result || !result.success) return;
     try {
         const rawImported = result.filePath.toLowerCase().endsWith('.json')
             ? JSON.parse(result.data)
-            : parseCfgCommands(result.data);
+            : NCU.parseCfgCommands(result.data);
         if (!Array.isArray(rawImported)) {
             addLog('导入失败: 文件内容不是有效的命令数组。', 'error');
             return;
         }
-        const imported = normalizeCommands(rawImported);
+        const imported = NCU.normalizeCommands(rawImported);
         if (imported.length === 0) {
             addLog('导入失败: 没有解析到任何合法命令（检查字段与十六进制格式）。', 'error');
             return;
@@ -355,13 +364,14 @@ const handleImportCommands = async () => {
         }
         saveCommands();
         renderRegisteredCommands();
-    } catch (e) {
-        addLog(`导入失败: ${e.message}`, 'error');
+    } catch (err) {
+        addLog(`导入失败: ${err.message}`, 'error');
     }
 };
 
 // 导出命令
 const handleExportCommands = async () => {
+    if (!window.electronAPI) return addLog('当前环境无 Electron 桥接，无法导出。', 'error');
     if (commands.length === 0) return addLog('没有可导出的命令。', 'error');
     const result = await window.electronAPI.exportCommands(JSON.stringify(commands, null, 2));
     if (result.success) addLog('命令已成功导出。');
@@ -498,13 +508,18 @@ deleteSelectedBtn.addEventListener('click', () => {
 });
 
 // --- 主进程事件监听 ---
-window.electronAPI.onLogMessage((msg, type) => addLog(msg, type));
-window.electronAPI.onServerStatus((status) => updateServerStatusUI(status.running, status.port));
-window.electronAPI.onRecvMessage((data) => {
-    const mode = decodeSelect ? decodeSelect.value : 'hex';
-    const decoded = decodeHex(data.rawHex, mode);
-    addLog(`从 ${data.address} 收到 (${mode.toUpperCase()}): ${decoded}`, 'recv');
-});
+// 无 electronAPI 时（如纯浏览器调试）跳过监听，避免中断整个脚本
+if (window.electronAPI) {
+    window.electronAPI.onLogMessage((msg, type) => addLog(msg, type));
+    window.electronAPI.onServerStatus((status) => updateServerStatusUI(status.running, status.port));
+    window.electronAPI.onRecvMessage((data) => {
+        const mode = decodeSelect ? decodeSelect.value : 'hex';
+        const decoded = NCU.decodeHex(data.rawHex, mode);
+        addLog(`从 ${data.address} 收到 (${mode.toUpperCase()}): ${decoded}`, 'recv');
+    });
+} else {
+    addLog('当前环境无 Electron 桥接（纯浏览器模式），网络功能不可用。', 'error');
+}
 
 // --- 初始化 ---
 window.addEventListener('load', () => {
